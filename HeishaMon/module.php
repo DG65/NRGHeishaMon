@@ -19,8 +19,9 @@ class HeishaMon extends IPSModule
 {
     //Einheitliche Formular-Optik (NRG-Stack-Konvention, siehe SUITE.md): Neu-in-Version-Panel
     //je Release hochzaehlen und die Highlights seit dem letzten Store-Stand eintragen.
-    private const NEWS_VERSION = '1.22.0';
+    private const NEWS_VERSION = '1.24.0';
     private const NEWS_ITEMS = [
+        'New: the configuration form now warns when an active WPHub instance also exists - if both control the same physical heat pump (one locally via MQTT, one via the Panasonic Comfort Cloud), using both to send commands at the same time can produce contradicting settings. Display only, nothing is blocked or changed automatically.',
         'New: the short-cycle guard can now also protect cooling mode - the original guard only suppressed the heat request, which has no effect while the unit is cooling. Enable "Also protect cooling mode" in the "Energy saving rulesets" panel.',
         'New: board diagnostics - WiFi quality, uptime, MQTT reconnects, bus read quality, active rules and firmware version from the HeishaMon stats topic, as variables in the new "Board diagnostics" group.',
         'New: S0 meters connected directly to the HeishaMon board (power + energy total in kWh) are now available as datapoints - usable as source for the measured COP.',
@@ -33,6 +34,12 @@ class HeishaMon extends IPSModule
     //Verweist derzeit auf die allgemeine Modul-Kategorie im Symcon-Forum, nicht auf einen
     //bestaetigten HeishaMon-eigenen Thread - bei Bedarf durch den konkreten Thread ersetzen.
     private const FORUM_URL = 'https://community.symcon.de/c/erweiterungen/php-module-entwicklung/21';
+
+    //Verbund-Fund 13.09.2026 (ChargerHub/WPHub): WPHub kann dieselbe Panasonic-Waermepumpe
+    //parallel ueber die Comfort Cloud ansteuern. Rein informative, gegenseitige Warnung
+    //(WPHub spiegelt denselben Check auf uns) - kein Blockieren, da die Geraeteidentitaet
+    //nicht zuverlaessig automatisch beweisbar ist (kein gemeinsames Seriennummernfeld).
+    private const WPHUB_MODULE_GUID = '{5BE429EA-3AAD-4A8B-85DE-5778CCA2E6BC}';
 
     public function Create()
     {
@@ -185,7 +192,42 @@ class HeishaMon extends IPSModule
             array_unshift($form['elements'], $newsPanel);
         }
 
+        //Warnung vor moeglicher Doppelsteuerung ganz oben (noch vor "Neu in Version") -
+        //Sicherheitshinweis, kein Release-Hinweis, daher ausserhalb der ueblichen Reihenfolge.
+        $crossModuleWarning = $this->buildWPHubOverlapWarning();
+        if ($crossModuleWarning !== null) {
+            array_unshift($form['elements'], $crossModuleWarning);
+        }
+
         return json_encode($form);
+    }
+
+    /**
+     * Prueft, ob eine aktive WPHub-Instanz existiert (dieselbe Panasonic-Waermepumpe koennte
+     * dann parallel ueber die Comfort Cloud angesteuert werden). Rein informativ, kein
+     * Blockieren - die Geraeteidentitaet laesst sich nicht automatisch/zuverlaessig pruefen
+     * (kein gemeinsames Identitaetsfeld, main/Heat_Pump_Model liefert nur einen rohen
+     * Hex-Bytestring). WPHub spiegelt denselben Check auf HeishaMon-Instanzen.
+     */
+    private function buildWPHubOverlapWarning(): ?array
+    {
+        $activeInstanceIDs = array_values(array_filter(
+            @IPS_GetInstanceListByModuleID(self::WPHUB_MODULE_GUID) ?: [],
+            function ($id) {
+                return IPS_GetInstance($id)['InstanceStatus'] === 102;
+            }
+        ));
+        if (count($activeInstanceIDs) === 0) {
+            return null;
+        }
+        return [
+            'type'    => 'Label',
+            'name'    => 'WPHubOverlapWarning',
+            'caption' => sprintf(
+                $this->Translate('⚠️ An active WPHub instance also exists (#%s). If both control the same physical heat pump - one locally via MQTT (HeishaMon), one via the Panasonic Comfort Cloud (WPHub) - do not use both to send commands at the same time, or their settings can contradict each other.'),
+                implode(', #', $activeInstanceIDs)
+            )
+        ];
     }
 
     /**

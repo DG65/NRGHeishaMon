@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.24.0 — 2026-09-13
+
+- Neue Warnung im Konfigurationsformular vor möglicher Doppelsteuerung: existiert zusätzlich eine aktive WPHub-Instanz, weist ein Hinweis ganz oben darauf hin, dass beide dieselbe physische Panasonic-Wärmepumpe ansteuern könnten (HeishaMon lokal per MQTT, WPHub über die Panasonic Comfort Cloud) - gleichzeitiges Schreiben über beide Kanäle kann sich widersprechen. Anlass: verbundweite Konfliktprüfung nach dem ChargerHub/OCPPHub-Wallbox-Vorfall deckte denselben Doppelsteuerungs-Verdacht bei Dietmars Anlage auf (bei ihm live bestätigt: WPHub ist aktiv). Rein informativ, kein Blockieren - die Geräteidentität lässt sich nicht automatisch/zuverlässig beweisen (kein gemeinsames Seriennummernfeld im Panasonic-Protokoll). WPHub spiegelt denselben Check auf HeishaMon-Instanzen (0.5.0)
+
 ## 1.23.1 — 2026-08-24
 
 - Falsche Doku-Aussage bei `fan2SpeedID` korrigiert (Dashboard-Fund: Dietmars Panasonic hat nur einen Lüfter, meldet aber trotzdem eine echte fan2SpeedID-Variable). Der bisherige Kommentar "Fan2 nur bei größeren Geräten mit zwei Lüftern" war falsch - main/Fan2_Motor_Speed liegt an einer festen Byte-Position im CN-CNT-Protokoll und wird von der Firmware für JEDES Modell dekodiert/gesendet, unabhängig von der tatsächlichen Lüfteranzahl (decode.h: fixer Offset, generische RotationsPerMin-Formel, keine Modellunterscheidung). Reine Dokumentationskorrektur im Vertrags-PHPDoc, kein Feld-/Verhaltensänderung
