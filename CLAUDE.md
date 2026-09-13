@@ -74,6 +74,7 @@ Vor jedem Push `php test_module.php` im übergeordneten Arbeitsverzeichnis ausf�
 - Darstellungen nur bei tatsächlicher Abweichung schreiben — sonst Update-Sturm in der Konsole.
 - In `onClick`-Skripten von Schaltflächen gibt es kein `$_IPS['TARGET']`, die Instanz-ID heißt `$id`.
 - Schaltflächen dürfen keine Eigenschaften per `IPS_SetProperty` + `IPS_ApplyChanges` persistieren, sondern nur die offene Maske per `UpdateFormField` ändern.
+- `ReadPropertyXXX()`/`ReadAttributeXXX()` liefern während eines kurzen Kernel-Reload-Fensters `false` statt des erwarteten Typs (SUITE.md-Regel 9c, 13.09.2026, dreimal unabhängig bei Tibber/OCPPHub/Dashboard aufgetreten, bei uns 15 Stellen betroffen und gefixt). Wegen `declare(strict_types=1)` wird aus einem ungecastet an `json_decode()` oder eine eigene typisierte Funktion weitergereichten Rückgabewert sofort ein `TypeError`. Jede neue `ReadPropertyString`/`ReadAttributeString`-Verwendung vor `json_decode()`/`trim()`/`SendDebug()` mit `(string)` casten, jede neue `ReadPropertyInteger`-Verwendung vor `GetValue()` oder einer eigenen `int`-typisierten Funktion mit `(int)` — außer sie geht direkt in einen Vergleich (`>`, `==`, `===`) oder eine Konkatenation (`.`), die sind bereits typsicher.
 - Nicht editierbare Listenspalten benötigen `"save": true`, sonst gehen ihre Werte beim Übernehmen verloren.
 
 

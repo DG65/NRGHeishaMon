@@ -319,7 +319,7 @@ class HeishaMon extends IPSModule
      */
     private function buildVariableListRows(array $orderedTopics, array $selection): array
     {
-        $seenTopics = json_decode($this->ReadAttributeString('SeenTopics'), true) ?: [];
+        $seenTopics = json_decode((string) $this->ReadAttributeString('SeenTopics'), true) ?: [];
         $topics = HeishaMonTopics::topics();
         $rows = [];
         foreach ($orderedTopics as $topic) {
@@ -388,10 +388,10 @@ class HeishaMon extends IPSModule
         $this->SetTimerInterval('COPUpdate', $energyID > 0 ? 60000 : 0);
 
         //Neustart-Watchdog nur mit aktivierter Option und eingetragener Platinen-IP
-        $watchdogActive = $this->ReadPropertyBoolean('RebootWatchdog') && trim($this->ReadPropertyString('DeviceIP')) != '';
+        $watchdogActive = $this->ReadPropertyBoolean('RebootWatchdog') && trim((string) $this->ReadPropertyString('DeviceIP')) != '';
         $this->SetTimerInterval('RebootWatchdog', $watchdogActive ? 60000 : 0);
 
-        $this->SendDebug('VariableList', $this->ReadPropertyString('VariableList'), 0);
+        $this->SendDebug('VariableList', (string) $this->ReadPropertyString('VariableList'), 0);
 
         //Praesentationen bestehender Variablen auffrischen (z.B. neue Enum-Optionen nach Modul-Update);
         //geschrieben wird nur bei tatsaechlicher Aenderung, sonst loest jedes Uebernehmen einen
@@ -529,7 +529,7 @@ class HeishaMon extends IPSModule
     private function getSelectionMap(): array
     {
         $map = [];
-        $rows = json_decode($this->ReadPropertyString('VariableList'), true);
+        $rows = json_decode((string) $this->ReadPropertyString('VariableList'), true);
         if (is_array($rows)) {
             foreach ($rows as $row) {
                 if (isset($row['Topic'])) {
@@ -554,7 +554,7 @@ class HeishaMon extends IPSModule
     {
         $all = HeishaMonTopics::defaultOrder();
         $saved = [];
-        $rows = json_decode($this->ReadPropertyString('VariableList'), true);
+        $rows = json_decode((string) $this->ReadPropertyString('VariableList'), true);
         if (is_array($rows)) {
             foreach ($rows as $row) {
                 if (isset($row['Topic']) && in_array($row['Topic'], $all, true)) {
@@ -669,7 +669,7 @@ class HeishaMon extends IPSModule
      */
     private function rememberSeenTopic(string $topic)
     {
-        $seen = json_decode($this->ReadAttributeString('SeenTopics'), true) ?: [];
+        $seen = json_decode((string) $this->ReadAttributeString('SeenTopics'), true) ?: [];
         if (!in_array($topic, $seen)) {
             $seen[] = $topic;
             $this->WriteAttributeString('SeenTopics', json_encode($seen));
@@ -901,16 +901,16 @@ class HeishaMon extends IPSModule
      */
     public function DeployShortCycleGuard()
     {
-        $deviceIP = trim($this->ReadPropertyString('DeviceIP'));
+        $deviceIP = trim((string) $this->ReadPropertyString('DeviceIP'));
         if ($deviceIP == '') {
             echo $this->Translate('Please enter the HeishaMon IP address first.');
             return;
         }
         $rules = $this->buildShortCycleGuardRules(
-            $this->ReadPropertyInteger('GuardOffMinutes'),
-            $this->ReadPropertyInteger('GuardMinOutsideTemp'),
+            (int) $this->ReadPropertyInteger('GuardOffMinutes'),
+            (int) $this->ReadPropertyInteger('GuardMinOutsideTemp'),
             $this->ReadPropertyBoolean('GuardCoolingEnabled'),
-            $this->ReadPropertyInteger('GuardMaxOutsideTempCool')
+            (int) $this->ReadPropertyInteger('GuardMaxOutsideTempCool')
         );
         $result = $this->sendHttpPost('http://' . $deviceIP . '/saverules', http_build_query(['rules' => $rules]));
         if ($result === false) {
@@ -948,7 +948,7 @@ class HeishaMon extends IPSModule
             return;
         }
         $this->WriteAttributeInteger('LastRebootAttempt', time());
-        $deviceIP = trim($this->ReadPropertyString('DeviceIP'));
+        $deviceIP = trim((string) $this->ReadPropertyString('DeviceIP'));
         $result = $this->sendHttpGet('http://' . $deviceIP . '/reboot');
         $this->LogMessage(
             $result === false
@@ -1106,7 +1106,7 @@ class HeishaMon extends IPSModule
             return;
         }
         $archiveID = $archives[0];
-        $done = json_decode($this->ReadAttributeString('ArchivedIdents'), true) ?: [];
+        $done = json_decode((string) $this->ReadAttributeString('ArchivedIdents'), true) ?: [];
         $changed = false;
         foreach (self::ARCHIVE_IDENTS as $ident => $isCounter) {
             if (in_array($ident, $done)) {
@@ -1412,7 +1412,7 @@ class HeishaMon extends IPSModule
 
     private function rememberSeenOneWire(string $address)
     {
-        $seen = json_decode($this->ReadAttributeString('SeenOneWire'), true) ?: [];
+        $seen = json_decode((string) $this->ReadAttributeString('SeenOneWire'), true) ?: [];
         if (!in_array($address, $seen)) {
             $seen[] = $address;
             $this->WriteAttributeString('SeenOneWire', json_encode($seen));
@@ -1425,7 +1425,7 @@ class HeishaMon extends IPSModule
     private function getOneWireConfigMap(): array
     {
         $map = [];
-        $rows = json_decode($this->ReadPropertyString('OneWireSensors'), true);
+        $rows = json_decode((string) $this->ReadPropertyString('OneWireSensors'), true);
         if (is_array($rows)) {
             foreach ($rows as $row) {
                 if (isset($row['Address'])) {
@@ -1462,9 +1462,9 @@ class HeishaMon extends IPSModule
      */
     private function getOrderedOneWireAddresses(): array
     {
-        $seen = json_decode($this->ReadAttributeString('SeenOneWire'), true) ?: [];
+        $seen = json_decode((string) $this->ReadAttributeString('SeenOneWire'), true) ?: [];
         $saved = [];
-        $rows = json_decode($this->ReadPropertyString('OneWireSensors'), true);
+        $rows = json_decode((string) $this->ReadPropertyString('OneWireSensors'), true);
         if (is_array($rows)) {
             foreach ($rows as $row) {
                 if (isset($row['Address']) && in_array($row['Address'], $seen, true)) {
@@ -1530,7 +1530,7 @@ class HeishaMon extends IPSModule
      */
     private function buildOneWireListRows(): array
     {
-        $seen = json_decode($this->ReadAttributeString('SeenOneWire'), true) ?: [];
+        $seen = json_decode((string) $this->ReadAttributeString('SeenOneWire'), true) ?: [];
         $config = $this->getOneWireConfigMap();
         $rows = [];
         foreach ($this->getOrderedOneWireAddresses() as $address) {
@@ -1779,7 +1779,7 @@ class HeishaMon extends IPSModule
             return;
         }
         if ($this->hasMeasuredPower()) {
-            $this->SetValue('Power_Total', floatval(GetValue($this->ReadPropertyInteger('PowerVariable'))));
+            $this->SetValue('Power_Total', floatval(GetValue((int) $this->ReadPropertyInteger('PowerVariable'))));
             return;
         }
         $this->SetValue('Power_Total', $this->getElectricalPower());

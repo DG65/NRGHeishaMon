@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.25.2 — 2026-09-13
+
+- Absicherung gegen SUITE.md-Verbund-Regel 9c (Tibber/OCPPHub/Dashboard-Fund, dreimal unabhängig aufgetreten): `ReadPropertyString`/`ReadAttributeString`/`ReadPropertyInteger` liefern während eines kurzen Kernel-Reload-Fensters `false` statt des erwarteten Typs zurück - ungecastet an `json_decode()` oder eigene typisierte Funktionen (`buildShortCycleGuardRules()`, `GetValue()`, `trim()`, `SendDebug()`) weitergereicht, hätte das wegen `declare(strict_types=1)` einen `TypeError` ausgelöst und die Instanz zum Absturz gebracht. 15 Stellen mit `(string)`/`(int)`-Casts abgesichert (Datenpunkt-Liste, 1-Wire-Liste, Taktschutz-Regelwerk, HeishaMon-IP, elektrische Gesamtleistung). Kein bislang beobachteter Absturz bei Dietmar, reine Vorsorge nach dem Fund in anderen Modulen. 4 neue Regressionstests, die den Fehler vor dem Fix nachweislich auslösten
+- SUITE.md-Regel 9b (Datumsformat/Umlaute) und 9d (Instanzstatus) geprüft: keine Änderung nötig - HeishaMon hat keine nutzersichtbaren Datumsfelder (die einzige interne Datumsverwendung ist ein nicht angezeigter Tagesschlüssel), verwendet bereits ausschließlich `IS_ACTIVE`/`IS_INACTIVE` statt eigener Fehlercodes, und die gefundenen ue/ae/oe-Schreibweisen stecken ausschließlich in Code-Kommentaren, nicht in nutzersichtbarem Text
+
 ## 1.25.1 — 2026-09-13
 
 - Hilfe-Fragen der neun PopupButtons nachgeschärft: EMS wies darauf hin, dass Fragen wie "Warum ist das wichtig?" den Gegenstand nicht benennen und bei mehreren Knöpfen im Formular nicht unterscheidbar sind (SUITE.md-Konvention verlangt den konkreten Gegenstand in der Frage, Referenz MeterHub). Alle neun Fragen benennen jetzt explizit ihr Feld (z. B. "Warum muss der Zähler kumulativ sein?" statt "Warum ist das wichtig?"), Breite auf 400-460px vereinheitlicht
