@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.25.1 — 2026-09-13
+
+- Hilfe-Fragen der neun PopupButtons nachgeschärft: EMS wies darauf hin, dass Fragen wie "Warum ist das wichtig?" den Gegenstand nicht benennen und bei mehreren Knöpfen im Formular nicht unterscheidbar sind (SUITE.md-Konvention verlangt den konkreten Gegenstand in der Frage, Referenz MeterHub). Alle neun Fragen benennen jetzt explizit ihr Feld (z. B. "Warum muss der Zähler kumulativ sein?" statt "Warum ist das wichtig?"), Breite auf 400-460px vereinheitlicht
+
 ## 1.25.0 — 2026-09-13
 
 - Alle neun "?"-Hilfe-Schaltflächen im Formular tragen jetzt die volle Frage als Beschriftung statt eines bloßen "?" (z. B. "Wie funktioniert der Taktschutz?"), Popup-Titel identisch zur Beschriftung, Breite an der Fragelänge statt am alten 70px-"?"-Quadrat ausgerichtet. Dietmars verbundweite Vorgabe (13.09.2026, bereits am 01.09.2026 in SUITE.md/MeterHub etabliert, hier nachgezogen) - Nutzer sehen vor dem Klick, welche Frage eine Schaltfläche beantwortet

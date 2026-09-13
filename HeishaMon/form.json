@@ -70,10 +70,10 @@
                 },
                 {
                     "type": "PopupButton",
-                    "caption": "Why does this matter?",
-                    "width": "280px",
+                    "caption": "Why must the base topic match exactly?",
+                    "width": "420px",
                     "popup": {
-                        "caption": "Why does this matter?",
+                        "caption": "Why must the base topic match exactly?",
                         "items": [
                             {
                                 "type": "Label",
@@ -94,10 +94,10 @@
                 },
                 {
                     "type": "PopupButton",
-                    "caption": "When is this useful?",
-                    "width": "280px",
+                    "caption": "When does the unknown-topics debug help?",
+                    "width": "460px",
                     "popup": {
-                        "caption": "When is this useful?",
+                        "caption": "When does the unknown-topics debug help?",
                         "items": [
                             {
                                 "type": "Label",
@@ -247,10 +247,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "Which variable fits here?",
-                            "width": "360px",
+                            "caption": "Which variable fits as the power source?",
+                            "width": "450px",
                             "popup": {
-                                "caption": "Which variable fits here?",
+                                "caption": "Which variable fits as the power source?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -271,10 +271,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "Cumulative or daily value?",
-                            "width": "380px",
+                            "caption": "Why must the counter be cumulative?",
+                            "width": "420px",
                             "popup": {
-                                "caption": "Cumulative or daily value?",
+                                "caption": "Why must the counter be cumulative?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -296,10 +296,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "Why a minimum?",
-                            "width": "280px",
+                            "caption": "Why a minimum power threshold?",
+                            "width": "400px",
                             "popup": {
-                                "caption": "Why a minimum?",
+                                "caption": "Why a minimum power threshold?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -340,10 +340,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "Where do I find this?",
-                            "width": "220px",
+                            "caption": "Where do I find the HeishaMon IP address?",
+                            "width": "460px",
                             "popup": {
-                                "caption": "Where do I find this?",
+                                "caption": "Where do I find the HeishaMon IP address?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -407,10 +407,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "Why is this needed separately?",
-                            "width": "400px",
+                            "caption": "Why does cooling need its own guard?",
+                            "width": "450px",
                             "popup": {
-                                "caption": "Why is this needed separately?",
+                                "caption": "Why does cooling need its own guard?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -489,10 +489,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "When does this take effect?",
-                            "width": "320px",
+                            "caption": "When does SmartGrid mode take effect?",
+                            "width": "450px",
                             "popup": {
-                                "caption": "When does this take effect?",
+                                "caption": "When does SmartGrid mode take effect?",
                                 "items": [
                                     {
                                         "type": "Label",
