@@ -19,8 +19,9 @@ class HeishaMon extends IPSModule
 {
     //Einheitliche Formular-Optik (NRG-Stack-Konvention, siehe SUITE.md): Neu-in-Version-Panel
     //je Release hochzaehlen und die Highlights seit dem letzten Store-Stand eintragen.
-    private const NEWS_VERSION = '1.24.0';
+    private const NEWS_VERSION = '1.25.0';
     private const NEWS_ITEMS = [
+        'New: the "?" help buttons next to individual fields now show the actual question they answer (e.g. "How does the short-cycle guard work?") instead of a bare "?" - you can see what a button explains before clicking it.',
         'New: the configuration form now warns when an active WPHub instance also exists - if both control the same physical heat pump (one locally via MQTT, one via the Panasonic Comfort Cloud), using both to send commands at the same time can produce contradicting settings. Display only, nothing is blocked or changed automatically.',
         'New: the short-cycle guard can now also protect cooling mode - the original guard only suppressed the heat request, which has no effect while the unit is cooling. Enable "Also protect cooling mode" in the "Energy saving rulesets" panel.',
         'New: board diagnostics - WiFi quality, uptime, MQTT reconnects, bus read quality, active rules and firmware version from the HeishaMon stats topic, as variables in the new "Board diagnostics" group.',

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.25.0 — 2026-09-13
+
+- Alle neun "?"-Hilfe-Schaltflächen im Formular tragen jetzt die volle Frage als Beschriftung statt eines bloßen "?" (z. B. "Wie funktioniert der Taktschutz?"), Popup-Titel identisch zur Beschriftung, Breite an der Fragelänge statt am alten 70px-"?"-Quadrat ausgerichtet. Dietmars verbundweite Vorgabe (13.09.2026, bereits am 01.09.2026 in SUITE.md/MeterHub etabliert, hier nachgezogen) - Nutzer sehen vor dem Klick, welche Frage eine Schaltfläche beantwortet
+
 ## 1.24.0 — 2026-09-13
 
 - Neue Warnung im Konfigurationsformular vor möglicher Doppelsteuerung: existiert zusätzlich eine aktive WPHub-Instanz, weist ein Hinweis ganz oben darauf hin, dass beide dieselbe physische Panasonic-Wärmepumpe ansteuern könnten (HeishaMon lokal per MQTT, WPHub über die Panasonic Comfort Cloud) - gleichzeitiges Schreiben über beide Kanäle kann sich widersprechen. Anlass: verbundweite Konfliktprüfung nach dem ChargerHub/OCPPHub-Wallbox-Vorfall deckte denselben Doppelsteuerungs-Verdacht bei Dietmars Anlage auf (bei ihm live bestätigt: WPHub ist aktiv). Rein informativ, kein Blockieren - die Geräteidentität lässt sich nicht automatisch/zuverlässig beweisen (kein gemeinsames Seriennummernfeld im Panasonic-Protokoll). WPHub spiegelt denselben Check auf HeishaMon-Instanzen (0.5.0)

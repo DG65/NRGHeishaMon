@@ -70,10 +70,10 @@
                 },
                 {
                     "type": "PopupButton",
-                    "caption": "?",
-                    "width": "70px",
+                    "caption": "Why does this matter?",
+                    "width": "280px",
                     "popup": {
-                        "caption": "MQTT base topic",
+                        "caption": "Why does this matter?",
                         "items": [
                             {
                                 "type": "Label",
@@ -94,10 +94,10 @@
                 },
                 {
                     "type": "PopupButton",
-                    "caption": "?",
-                    "width": "70px",
+                    "caption": "When is this useful?",
+                    "width": "280px",
                     "popup": {
-                        "caption": "Debug: unknown topics",
+                        "caption": "When is this useful?",
                         "items": [
                             {
                                 "type": "Label",
@@ -247,10 +247,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "?",
-                            "width": "70px",
+                            "caption": "Which variable fits here?",
+                            "width": "360px",
                             "popup": {
-                                "caption": "Active power of the heat pump",
+                                "caption": "Which variable fits here?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -271,10 +271,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "?",
-                            "width": "70px",
+                            "caption": "Cumulative or daily value?",
+                            "width": "380px",
                             "popup": {
-                                "caption": "Energy counter of the heat pump",
+                                "caption": "Cumulative or daily value?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -296,10 +296,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "?",
-                            "width": "70px",
+                            "caption": "Why a minimum?",
+                            "width": "280px",
                             "popup": {
-                                "caption": "Minimum power for COP calculation",
+                                "caption": "Why a minimum?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -340,10 +340,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "?",
-                            "width": "70px",
+                            "caption": "Where do I find this?",
+                            "width": "220px",
                             "popup": {
-                                "caption": "HeishaMon IP address",
+                                "caption": "Where do I find this?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -375,10 +375,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "?",
-                            "width": "70px",
+                            "caption": "How does the short-cycle guard work?",
+                            "width": "400px",
                             "popup": {
-                                "caption": "Short-cycle guard",
+                                "caption": "How does the short-cycle guard work?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -407,10 +407,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "?",
-                            "width": "70px",
+                            "caption": "Why is this needed separately?",
+                            "width": "400px",
                             "popup": {
-                                "caption": "Short-cycle guard for cooling",
+                                "caption": "Why is this needed separately?",
                                 "items": [
                                     {
                                         "type": "Label",
@@ -489,10 +489,10 @@
                         },
                         {
                             "type": "PopupButton",
-                            "caption": "?",
-                            "width": "70px",
+                            "caption": "When does this take effect?",
+                            "width": "320px",
                             "popup": {
-                                "caption": "SmartGrid mode",
+                                "caption": "When does this take effect?",
                                 "items": [
                                     {
                                         "type": "Label",
