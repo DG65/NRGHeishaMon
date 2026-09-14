@@ -1,6 +1,6 @@
 # [Modul] HeishaMon — Panasonic Aquarea Wärmepumpe in IP-Symcon
 
-*(Aktualisierung der Erstvorstellung — das Modul hat seit v1.1.1 einen großen Entwicklungsschub gemacht, aktueller Stand: v1.21.0)*
+*(Aktualisierung der Erstvorstellung vom 18. Juni — das Modul hat seither einen großen Entwicklungsschub gemacht, aktueller Stand: v1.28.0. Wichtig vorweg: die Lizenz hat seit v1.2.1 gewechselt, siehe unten — das Modul steht NICHT mehr unter der im Erstbeitrag genannten MIT-Lizenz.)*
 
 ## Worum geht es?
 
@@ -15,9 +15,9 @@ Alle anderen SmartHome-Anbindungen für HeishaMon (Home Assistant, openHAB, Domo
 [BILD 2: Übersicht Alleinstellungsmerkmale — heishamon_usps.png]
 
 - **💡 Energiespar-Prüfung** — bewertet die von der Anlage empfangenen Service-Einstellungen (Warmwasser-Sollwert, Heizstab-Freigaben, Heizgrenze, Heizkurve, Pumpenansteuerung) und das *echte* Taktverhalten (Laufzeit je Verdichterstart aus den Betriebszählern) anhand von Richtwerten aus den dokumentierten HeishaMon-Referenz-Regelwerken und dem Panasonic-Servicehandbuch. Konkrete Sparhinweise direkt in der Konfiguration — reine Anzeige, verändert nichts.
-- **⚙️ Taktschutz per Knopfdruck** — das Modul spielt ein parametrisiertes Schutz-Regelwerk (Wiederanlauf-Sperre nach Verdichterstopp, mit Kälte-Override) direkt auf die HeishaMon-Platine. Es läuft dort autonom weiter, selbst wenn WLAN oder IP-Symcon ausfallen. Sperrzeit und Temperaturschwelle sind einstellbar; die Firmware validiert jeden Upload selbst.
+- **⚙️ Taktschutz per Knopfdruck** — das Modul spielt ein parametrisiertes Schutz-Regelwerk (Wiederanlauf-Sperre nach Verdichterstopp, mit Kälte-Override) direkt auf die HeishaMon-Platine. Es läuft dort autonom weiter, selbst wenn WLAN oder IP-Symcon ausfallen. Sperrzeit und Temperaturschwelle sind einstellbar, optional auch für den Kühlbetrieb (eigener Regelzweig, da die Anlage Heiz- und Kühlanforderung getrennt führt); die Firmware validiert jeden Upload selbst.
 - **🔄 Neustart-Watchdog + 🩺 Platinen-Diagnose** — hängt MQTT länger als eingestellt, startet das Modul die Platine über deren Reboot-Schnittstelle neu (Opt-in, mit Schleifenschutz). Und die Diagnose-Gruppe (WLAN-Qualität, Laufzeit, MQTT-Neuverbindungen, Bus-Lesequalität, Firmware-Version) zeigt bei Verbindungsproblemen die *Ursache* statt nur das Symptom — WLAN-Qualität und Neuverbindungen werden automatisch archiviert.
-- **🤝 NRG-Stack-Verbund** — andere Module der NRG-Stack-Familie (Energiemanagement, Anlagenschema-Kachel, Wärmepumpen-Monitor) finden die Wärmepumpe automatisch über `HEISHA_GetFunctions()` — ohne manuelle Variablen-Zuweisung, inklusive gemessenem COP, Tages-Arbeitszahl und herstellerneutraler Betriebsart.
+- **🤝 NRG-Stack-Verbund** — andere Module der NRG-Stack-Familie (Energiemanagement, Anlagenschema-Kachel, Wärmepumpen-Monitor) finden die Wärmepumpe automatisch über `HEISHA_GetFunctions()` — ohne manuelle Variablen-Zuweisung, inklusive gemessenem COP, Tages-Arbeitszahl, herstellerneutraler Betriebsart und Heizstab-Status. Ist bereits ein MeterHub-Zähler mit Funktionszuordnung „Wärmepumpe" vorhanden, schlägt das Modul ihn automatisch vor. Wer zusätzlich WPHub (Panasonic Comfort Cloud) für dieselbe Anlage nutzt, bekommt einen Hinweis, damit beide Kanäle nicht gleichzeitig schreiben.
 
 ## Funktionsumfang im Überblick
 
@@ -44,7 +44,7 @@ Alle anderen SmartHome-Anbindungen für HeishaMon (Home Assistant, openHAB, Domo
 **Komfort & Betrieb**
 - Automatische **Archivierung** aller Monitoring-Datenpunkte (einmalig, Nutzer-Abwahl wird respektiert) — Zeitreihen-Kacheln funktionieren ohne Handarbeit
 - Ausführliche **Dokumentation & Hilfe** direkt im Formular, ?-Hilfen an allen erklärungsbedürftigen Feldern
-- Vollständig deutsch übersetzt; über 220 automatisierte Tests sichern jede Version ab
+- Vollständig deutsch übersetzt; über 260 automatisierte Tests sichern jede Version ab
 
 [SCREENSHOT C: WP-Monitor-Kachel mit Tagesverlauf (elektrisch/thermisch/Temperaturen) — optional, eigenes NRG-Stack-Modul]
 [SCREENSHOT D: Anlagenschema-Kachel mit Live-Zuständen — optional, eigenes NRG-Stack-Modul]
@@ -57,7 +57,7 @@ Alle anderen SmartHome-Anbindungen für HeishaMon (Home Assistant, openHAB, Domo
 
 ## Installation & Einrichtung
 
-1. **Modulverwaltung → Hinzufügen** → URL `https://github.com/DG65/NRGHeishaMon` (Zweig `beta` für den aktuellen Stand; im Module Store liegt derzeit noch die Erstversion 1.1.1)
+1. **Modulverwaltung → Symcon Store** → „HeishaMon" suchen und hinzufügen, dabei den **Beta-Kanal** wählen (führt den aktuellen Funktionsstand; der Stable-Kanal folgt zu gegebener Zeit). Wer stattdessen manuell per GitHub-URL installieren möchte: `https://github.com/DG65/NRGHeishaMon`, Zweig `beta`.
 2. HeishaMon-Instanz unter dem MQTT-Server anlegen
 3. **MQTT-Basistopic** eintragen (muss exakt dem in der HeishaMon-Weboberfläche entsprechen, Standard `panasonic_heat_pump`) — fertig, die Variablen entstehen von selbst
 

@@ -64,9 +64,11 @@ Variablen-Idents werden **nie** umbenannt — sie sind die Schnittstelle für Sk
 
 Die Übernahme nach `main` entscheidet Dietmar von sich aus (nicht nachfragen, siehe Feedback-Notiz „beta→main-Freigabe" im Gedächtnis).
 
-## Store-Vorbereitung (13.09.2026)
+## Store-Vorbereitung (13.09.2026, Status 15.09.2026)
 
 Dietmar hat den Symcon-Store-Start bestätigt, HeishaMon ist eines der startrelevanten Module (Zeitrahmen grob 6-10 Wochen). Bis dahin: Store-Reife statt neue Features priorisieren, Symcon-Store-Review-Checkliste in SUITE.md regelmäßig gegenprüfen (zuletzt 9b/9c/9d am 13.09.2026 durchgegangen, siehe CHANGELOG 1.25.2 — nur 9c war ein echter Fund).
+
+**Store-Status (15.09.2026):** HeishaMon ist jetzt im Symcon-Store gelistet, Kanal **Beta**. Stable-Kanal noch offen (main-Branch ist Store-seitig noch der alte MIT-Stand, siehe LICENSE_URL-Hinweis im Code) - Übernahme main entscheidet Dietmar selbst (siehe Feedback-Notiz „beta→main-Freigabe" im Gedächtnis).
 
 **Migrationsvergleich vor jedem Push auf `beta`** (SUITE.md 9e, neu 13.09.2026): `php /Users/dietmar/Nextcloud/Claude/.tools/migrationsvergleich.php . origin/beta HEAD` ausführen. Meldet BRUCH (Modul/GUID entfernt, Präfix-, Property-/Ident-Entfernung oder Typänderung, öffentliche Funktion entfernt/Parameterzahl geändert, Vertrags-Major-Sprung), WARNUNG, HINWEIS — Rückgabewert 1 bedeutet: vor dem Push klären, nicht committen. Ziel: kein Release, das bei Nutzern eine Migration erzwingt. Am 13.09.2026 selbst gegengeprüft: `origin/beta` → `HEAD` (ems-integration) ohne Bruch (Exit 0).
 
