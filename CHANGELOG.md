@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.26.0 — 2026-09-14
+
+- Automatische MeterHub-Zuordnung im Bereich "Externer Stromzähler": Hat MeterHub bereits einen Zähler mit Funktionszuordnung "Wärmepumpe" (`MHUB_GetFunctions`), erscheint automatisch ein Vorschlag mit Ein-Klick-Knopf "Von MeterHub übernehmen" - keine manuelle Variablensuche mehr nötig. Nur solange PowerVariable/EnergyVariable noch nicht verknüpft sind, Übernahme ausschließlich auf Klick, nie automatisch im Hintergrund. Anlass: beim Neuinstallations-Check (InverterHub-Anstoß) als Lücke gegenüber WPHub gefunden, das dieses Muster schon hat; 1:1 nach WPHubs Quellcode übernommen, EMS hat vorab zugestimmt (kein neues Vertragsfeld, reiner Konsum von MeterHubs bestehendem Vertrag)
+
 ## 1.25.2 — 2026-09-13
 
 - Absicherung gegen SUITE.md-Verbund-Regel 9c (Tibber/OCPPHub/Dashboard-Fund, dreimal unabhängig aufgetreten): `ReadPropertyString`/`ReadAttributeString`/`ReadPropertyInteger` liefern während eines kurzen Kernel-Reload-Fensters `false` statt des erwarteten Typs zurück - ungecastet an `json_decode()` oder eigene typisierte Funktionen (`buildShortCycleGuardRules()`, `GetValue()`, `trim()`, `SendDebug()`) weitergereicht, hätte das wegen `declare(strict_types=1)` einen `TypeError` ausgelöst und die Instanz zum Absturz gebracht. 15 Stellen mit `(string)`/`(int)`-Casts abgesichert (Datenpunkt-Liste, 1-Wire-Liste, Taktschutz-Regelwerk, HeishaMon-IP, elektrische Gesamtleistung). Kein bislang beobachteter Absturz bei Dietmar, reine Vorsorge nach dem Fund in anderen Modulen. 4 neue Regressionstests, die den Fehler vor dem Fix nachweislich auslösten

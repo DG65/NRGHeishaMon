@@ -19,8 +19,9 @@ class HeishaMon extends IPSModule
 {
     //Einheitliche Formular-Optik (NRG-Stack-Konvention, siehe SUITE.md): Neu-in-Version-Panel
     //je Release hochzaehlen und die Highlights seit dem letzten Store-Stand eintragen.
-    private const NEWS_VERSION = '1.25.0';
+    private const NEWS_VERSION = '1.26.0';
     private const NEWS_ITEMS = [
+        'New: if MeterHub already has a meter assigned to function "heat pump", the "External energy meter" panel now suggests it automatically with a one-click "Adopt from MeterHub" button - no more manual variable search.',
         'New: the "?" help buttons next to individual fields now show the actual question they answer (e.g. "How does the short-cycle guard work?") instead of a bare "?" - you can see what a button explains before clicking it.',
         'New: the configuration form now warns when an active WPHub instance also exists - if both control the same physical heat pump (one locally via MQTT, one via the Panasonic Comfort Cloud), using both to send commands at the same time can produce contradicting settings. Display only, nothing is blocked or changed automatically.',
         'New: the short-cycle guard can now also protect cooling mode - the original guard only suppressed the heat request, which has no effect while the unit is cooling. Enable "Also protect cooling mode" in the "Energy saving rulesets" panel.',
@@ -41,6 +42,10 @@ class HeishaMon extends IPSModule
     //(WPHub spiegelt denselben Check auf uns) - kein Blockieren, da die Geraeteidentitaet
     //nicht zuverlaessig automatisch beweisbar ist (kein gemeinsames Seriennummernfeld).
     private const WPHUB_MODULE_GUID = '{5BE429EA-3AAD-4A8B-85DE-5778CCA2E6BC}';
+
+    //MeterHub-Modul-GUID (DG65/NRGMeterHub) - fuer die optionale Autozuordnung des externen
+    //Stromzaehlers, 1:1 nach WPHubs Vorbild (meterHubHeatpumpAssignment()), von EMS bestaetigt.
+    private const METERHUB_MODULE_GUID = '{BAB8E05C-9150-43B9-9F2B-E5215FA54F0A}';
 
     public function Create()
     {
@@ -200,7 +205,99 @@ class HeishaMon extends IPSModule
             array_unshift($form['elements'], $crossModuleWarning);
         }
 
+        //MeterHub-Vorschlag: nur solange noch nichts verknuepft ist (0/0) - wer schon manuell
+        //oder per Uebernahme verknuepft hat, soll nicht bei jedem Formularaufruf erneut
+        //beworben werden (1:1 nach WPHubs Vorbild, meterHubHeatpumpAssignment()).
+        $assignment = $this->meterHubHeatpumpAssignment();
+        if ($assignment !== null
+            && $this->ReadPropertyInteger('PowerVariable') <= 0
+            && $this->ReadPropertyInteger('EnergyVariable') <= 0) {
+            $this->patchFormElement($form['elements'], 'MeterHubSuggestion', function (&$element) use ($assignment) {
+                $element['caption'] = sprintf($this->Translate('ℹ️ MeterHub found a meter "%s" assigned to function "heat pump".'), $assignment['label']);
+                $element['visible'] = true;
+            });
+            $this->patchFormElement($form['elements'], 'MeterHubAdoptButton', function (&$element) {
+                $element['visible'] = true;
+            });
+        }
+
         return json_encode($form);
+    }
+
+    /**
+     * Sucht ueber alle installierten MeterHub-Instanzen nach einer Funktionszuordnung
+     * "Waermepumpe" (Vertrag MHUB_GetFunctions($id), Feld 'function' === 'heatpump' -
+     * MeterHub fuehrt dafuer bereits ein festes Vokabular, siehe dessen eigene Doku). Rein
+     * lesend, MeterHub ist optional (function_exists-Wache) und HeishaMon aendert an dessen
+     * Zuordnung nichts. Liefert die erste gefundene Zuordnung mit mindestens einer Groesse
+     * (Leistung oder Energie) als ['powerID','energyID','label'], oder null, wenn kein
+     * MeterHub installiert ist oder keine Waermepumpe zugeordnet wurde. 1:1 nach WPHubs
+     * Vorbild (meterHubHeatpumpAssignment()), von EMS bestaetigt (13.09.2026).
+     */
+    private function meterHubHeatpumpAssignment(): ?array
+    {
+        if (!function_exists('MHUB_GetFunctions') || !function_exists('IPS_GetInstanceListByModuleID')) {
+            return null;
+        }
+        try {
+            $instances = @IPS_GetInstanceListByModuleID(self::METERHUB_MODULE_GUID);
+            if (!is_array($instances)) {
+                return null;
+            }
+            foreach ($instances as $instanceID) {
+                $raw = @MHUB_GetFunctions((int) $instanceID);
+                $data = is_string($raw) ? json_decode($raw, true) : null;
+                if (!is_array($data) || !isset($data['assignments']) || !is_array($data['assignments'])) {
+                    continue;
+                }
+                foreach ($data['assignments'] as $a) {
+                    if (!is_array($a) || ($a['function'] ?? '') !== 'heatpump') {
+                        continue;
+                    }
+                    $powerID = (int) ($a['powerID'] ?? 0);
+                    $energyID = (int) ($a['energyImportID'] ?? 0);
+                    if ($powerID <= 0 && $energyID <= 0) {
+                        continue;
+                    }
+                    return [
+                        'powerID'  => $powerID,
+                        'energyID' => $energyID,
+                        'label'    => (string) ($a['label'] ?? $this->Translate('Heat pump'))
+                    ];
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->SendDebug('MeterHub-Erkennung', $e->getMessage(), 0);
+        }
+        return null;
+    }
+
+    /**
+     * Uebernimmt eine per meterHubHeatpumpAssignment() gefundene Zuordnung in
+     * PowerVariable/EnergyVariable - ausschliesslich auf Klick der Formular-Schaltflaeche,
+     * nie automatisch im Hintergrund (gleiches Prinzip wie AckNews/DismissForumHint).
+     */
+    public function AdoptMeterHubAssignment()
+    {
+        $found = $this->meterHubHeatpumpAssignment();
+        if ($found === null) {
+            $this->UpdateFormField('MeterHubResult', 'caption', $this->Translate('❌ No MeterHub assignment "heat pump" found (anymore).'));
+            $this->UpdateFormField('MeterHubResult', 'visible', true);
+            return;
+        }
+        if ($found['powerID'] > 0) {
+            IPS_SetProperty($this->InstanceID, 'PowerVariable', $found['powerID']);
+        }
+        if ($found['energyID'] > 0) {
+            IPS_SetProperty($this->InstanceID, 'EnergyVariable', $found['energyID']);
+        }
+        IPS_ApplyChanges($this->InstanceID);
+        $this->UpdateFormField('PowerVariable', 'value', $found['powerID']);
+        $this->UpdateFormField('EnergyVariable', 'value', $found['energyID']);
+        $this->UpdateFormField('MeterHubResult', 'caption', sprintf($this->Translate('✅ Adopted from MeterHub "%s".'), $found['label']));
+        $this->UpdateFormField('MeterHubResult', 'visible', true);
+        $this->UpdateFormField('MeterHubSuggestion', 'visible', false);
+        $this->UpdateFormField('MeterHubAdoptButton', 'visible', false);
     }
 
     /**

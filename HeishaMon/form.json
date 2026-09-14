@@ -28,7 +28,7 @@
                 },
                 {
                     "type": "Label",
-                    "caption": "⚡ External energy meter: If a meter (e.g. Shelly 3EM or an S0 meter wired directly to the HeishaMon board) measures the heat pump supply line, select its power (W) and energy counter (kWh, cumulative) variables. The module then reports the measured electrical power instead of the unit's rough estimate and calculates the measured COP plus the daily performance factor. The minimum power threshold prevents misleading COP values from standby noise."
+                    "caption": "⚡ External energy meter: If a meter (e.g. Shelly 3EM or an S0 meter wired directly to the HeishaMon board) measures the heat pump supply line, select its power (W) and energy counter (kWh, cumulative) variables. The module then reports the measured electrical power instead of the unit's rough estimate and calculates the measured COP plus the daily performance factor. The minimum power threshold prevents misleading COP values from standby noise. If MeterHub already has a meter assigned to function \"heat pump\", a suggestion with a one-click adopt button appears automatically."
                 },
                 {
                     "type": "Label",
@@ -236,6 +236,25 @@
                 {
                     "type": "Label",
                     "caption": "If an external energy meter (e.g. Shelly 3EM) measures the heat pump supply line, select its variables here. The module then calculates the measured COP and the daily performance factor from the meter readings."
+                },
+                {
+                    "type": "Label",
+                    "name": "MeterHubSuggestion",
+                    "caption": "",
+                    "visible": false
+                },
+                {
+                    "type": "Button",
+                    "name": "MeterHubAdoptButton",
+                    "caption": "🔗 Adopt from MeterHub",
+                    "visible": false,
+                    "onClick": "HEISHA_AdoptMeterHubAssignment($id);"
+                },
+                {
+                    "type": "Label",
+                    "name": "MeterHubResult",
+                    "caption": "",
+                    "visible": false
                 },
                 {
                     "type": "RowLayout",
