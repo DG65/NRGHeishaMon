@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.27.0 — 2026-09-14
+
+- Neues "👋 Wozu dieses Modul?"-Panel ganz oben im Formular, noch vor dem "Neu in Version"-Panel: erklärt in zwei Sätzen, was das Modul tut (lokale MQTT-Anbindung einer Panasonic-Wärmepumpe über die HeishaMon-Platine, ohne Cloud-Abhängigkeit) und welchen Nutzen das stiftet (Auswertung/Automatisierung wie jedes Symcon-Gerät, Einbindung in den NRG-Stack), mit Verweis auf WPHub als Cloud-Alternative ohne eigene HeishaMon-Platine. Aufgeklappt, einmalig dauerhaft ausblendbar (nicht versioniert wie das News-Panel). Verbundweite Konvention (SUITE.md "Einheitliche Formular-Optik" Punkt 0, Auslöser: ein Nutzer wusste beim ersten Öffnen nicht, wofür das Modul gut ist), Referenzimplementierung MeterHub
+
 ## 1.26.0 — 2026-09-14
 
 - Automatische MeterHub-Zuordnung im Bereich "Externer Stromzähler": Hat MeterHub bereits einen Zähler mit Funktionszuordnung "Wärmepumpe" (`MHUB_GetFunctions`), erscheint automatisch ein Vorschlag mit Ein-Klick-Knopf "Von MeterHub übernehmen" - keine manuelle Variablensuche mehr nötig. Nur solange PowerVariable/EnergyVariable noch nicht verknüpft sind, Übernahme ausschließlich auf Klick, nie automatisch im Hintergrund. Anlass: beim Neuinstallations-Check (InverterHub-Anstoß) als Lücke gegenüber WPHub gefunden, das dieses Muster schon hat; 1:1 nach WPHubs Quellcode übernommen, EMS hat vorab zugestimmt (kein neues Vertragsfeld, reiner Konsum von MeterHubs bestehendem Vertrag)

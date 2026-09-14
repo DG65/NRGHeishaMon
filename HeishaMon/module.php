@@ -19,8 +19,9 @@ class HeishaMon extends IPSModule
 {
     //Einheitliche Formular-Optik (NRG-Stack-Konvention, siehe SUITE.md): Neu-in-Version-Panel
     //je Release hochzaehlen und die Highlights seit dem letzten Store-Stand eintragen.
-    private const NEWS_VERSION = '1.26.0';
+    private const NEWS_VERSION = '1.27.0';
     private const NEWS_ITEMS = [
+        'New: a "What is this module for?" panel now appears at the very top of the form, explaining in a couple of sentences what the module does and why - helpful when setting it up for the first time. Shown once, then dismissible for good.',
         'New: if MeterHub already has a meter assigned to function "heat pump", the "External energy meter" panel now suggests it automatically with a one-click "Adopt from MeterHub" button - no more manual variable search.',
         'New: the "?" help buttons next to individual fields now show the actual question they answer (e.g. "How does the short-cycle guard work?") instead of a bare "?" - you can see what a button explains before clicking it.',
         'New: the configuration form now warns when an active WPHub instance also exists - if both control the same physical heat pump (one locally via MQTT, one via the Panasonic Comfort Cloud), using both to send commands at the same time can produce contradicting settings. Display only, nothing is blocked or changed automatically.',
@@ -55,7 +56,9 @@ class HeishaMon extends IPSModule
         $this->RegisterPropertyString('MQTTTopic', 'panasonic_heat_pump');
         $this->RegisterPropertyBoolean('DebugUnknownTopics', false);
 
-        //Formular-Hinweise: "Neu in Version" (pro Version bestaetigt) und Forum-Hinweis (einmalig)
+        //Formular-Hinweise: "Wozu dieses Modul?" (einmalig, ganz oben) + "Neu in Version"
+        //(pro Version bestaetigt) + Forum-Hinweis (einmalig)
+        $this->RegisterAttributeBoolean('PurposeIntroGone', false);
         $this->RegisterAttributeString('SeenNews', '');
         $this->RegisterAttributeBoolean('ForumHintDismissed', false);
 
@@ -196,6 +199,13 @@ class HeishaMon extends IPSModule
         $newsPanel = $this->buildNewsPanel();
         if ($newsPanel !== null) {
             array_unshift($form['elements'], $newsPanel);
+        }
+
+        //"Wozu dieses Modul?" noch davor - Zweck-Einfuehrung, einmalig dismissible, nicht
+        //versioniert (SUITE.md "Einheitliche Formular-Optik" Punkt 0, Referenz MeterHub).
+        $purposeIntro = $this->buildPurposeIntro();
+        if ($purposeIntro !== null) {
+            array_unshift($form['elements'], $purposeIntro);
         }
 
         //Warnung vor moeglicher Doppelsteuerung ganz oben (noch vor "Neu in Version") -
@@ -349,6 +359,45 @@ class HeishaMon extends IPSModule
     {
         $library = json_decode(file_get_contents(__DIR__ . '/../library.json'), true);
         return 'v' . ($library['version'] ?? '?');
+    }
+
+    /**
+     * "Wozu dieses Modul?"-Panel: aufgeklappt, einmalig dismissible (nicht versioniert wie
+     * das News-Panel - der Zweck eines Moduls aendert sich nicht mit jedem Release). SUITE.md
+     * "Einheitliche Formular-Optik" Punkt 0, Referenzimplementierung MeterHub.
+     */
+    private function buildPurposeIntro(): ?array
+    {
+        if ($this->ReadAttributeBoolean('PurposeIntroGone')) {
+            return null;
+        }
+        return [
+            'type'     => 'ExpansionPanel',
+            'name'     => 'PurposeIntroPanel',
+            'expanded' => true,
+            'caption'  => $this->Translate('👋  What is this module for?'),
+            'items'    => [
+                [
+                    'type'    => 'Label',
+                    'caption' => $this->Translate('This module connects a Panasonic heat pump to IP-Symcon locally via MQTT through the HeishaMon board - all readings, operating states and control options become available as Symcon variables automatically, without any cloud dependency.')
+                ],
+                [
+                    'type'    => 'Label',
+                    'caption' => $this->Translate('That lets you evaluate and automate the heat pump like any other Symcon device, and connect it to the rest of your home energy system through the NRG-Stack (e.g. energy management, system schematic). No HeishaMon board? WPHub offers a cloud alternative via the Panasonic Comfort Cloud.')
+                ],
+                [
+                    'type'    => 'Button',
+                    'caption' => $this->Translate('Understood - do not show again'),
+                    'onClick' => 'HEISHA_AckPurposeIntro($id);'
+                ]
+            ]
+        ];
+    }
+
+    public function AckPurposeIntro()
+    {
+        $this->WriteAttributeBoolean('PurposeIntroGone', true);
+        $this->UpdateFormField('PurposeIntroPanel', 'visible', false);
     }
 
     /**
