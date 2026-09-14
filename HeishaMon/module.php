@@ -19,8 +19,9 @@ class HeishaMon extends IPSModule
 {
     //Einheitliche Formular-Optik (NRG-Stack-Konvention, siehe SUITE.md): Neu-in-Version-Panel
     //je Release hochzaehlen und die Highlights seit dem letzten Store-Stand eintragen.
-    private const NEWS_VERSION = '1.27.0';
+    private const NEWS_VERSION = '1.28.0';
     private const NEWS_ITEMS = [
+        'New: a "🧡 About this module" panel at the very bottom of the form documents the license (PolyForm Noncommercial) and offers an optional PayPal donation link - always visible, never dismissible. The Symcon forum hint above it was restyled to match the rest of the module (dismissible panel instead of a plain row) and now links to the module\'s own discussion thread instead of the generic PHP module category.',
         'New: a "What is this module for?" panel now appears at the very top of the form, explaining in a couple of sentences what the module does and why - helpful when setting it up for the first time. Shown once, then dismissible for good.',
         'New: if MeterHub already has a meter assigned to function "heat pump", the "External energy meter" panel now suggests it automatically with a one-click "Adopt from MeterHub" button - no more manual variable search.',
         'New: the "?" help buttons next to individual fields now show the actual question they answer (e.g. "How does the short-cycle guard work?") instead of a bare "?" - you can see what a button explains before clicking it.',
@@ -34,9 +35,16 @@ class HeishaMon extends IPSModule
         'New: monitoring datapoints (power, temperatures, COP, defrost, compressor starts) are now archived automatically for time-series tiles - see "Archiving" panel to opt out.',
         'New: optional extra commands (large board relays, SmartGrid mode as a digital SG ready replacement) - see "Extra commands" panel.'
     ];
-    //Verweist derzeit auf die allgemeine Modul-Kategorie im Symcon-Forum, nicht auf einen
-    //bestaetigten HeishaMon-eigenen Thread - bei Bedarf durch den konkreten Thread ersetzen.
-    private const FORUM_URL = 'https://community.symcon.de/c/erweiterungen/php-module-entwicklung/21';
+    //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
+    //ein Platzhalter auf die allgemeine Modul-Kategorie.
+    private const FORUM_URL = 'https://community.symcon.de/t/modul-heishamon-panasonic-aquarea-waermepumpe-in-ip-symcon/143993';
+
+    //Wortlaut/Struktur verbundweit identisch ("Variante A"), SUITE.md "Einheitliche
+    //Formular-Optik" Punkt 5. LICENSE_URL zeigt auf `beta`, nicht `main` - main traegt noch
+    //die alte MIT-Lizenz (Store-Uebernahme steht noch aus), beta bereits PolyForm (geprueft
+    //14.09.2026: git show origin/beta:LICENSE).
+    private const LICENSE_URL = 'https://github.com/DG65/NRGHeishaMon/blob/beta/LICENSE';
+    private const PAYPAL_URL = 'https://paypal.me/DietmarGureth';
 
     //Verbund-Fund 13.09.2026 (ChargerHub/WPHub): WPHub kann dieselbe Panasonic-Waermepumpe
     //parallel ueber die Comfort Cloud ansteuern. Rein informative, gegenseitige Warnung
@@ -191,9 +199,14 @@ class HeishaMon extends IPSModule
         });
 
         //Forum-Hinweis am Ende, solange nicht bestaetigt
-        if (!$this->ReadAttributeBoolean('ForumHintDismissed')) {
-            $form['elements'][] = $this->buildForumHint();
+        $forumHint = $this->buildForumHint();
+        if ($forumHint !== null) {
+            $form['elements'][] = $forumHint;
         }
+
+        //"Ueber dieses Modul" ganz unten, NACH dem Forum-Hinweis - anders als die anderen
+        //Hinweis-Panels bewusst NICHT dismissible (SUITE.md "Einheitliche Formular-Optik" Punkt 5).
+        $form['elements'][] = $this->buildLicenseHint();
 
         //"Neu in Version" ganz oben, solange die aktuelle Version nicht bestaetigt wurde
         $newsPanel = $this->buildNewsPanel();
@@ -434,21 +447,24 @@ class HeishaMon extends IPSModule
     }
 
     /**
-     * Einmaliger Hinweis auf das Symcon-Forum, solange nicht ausgeblendet.
+     * Einmaliger Hinweis auf den Symcon-Forum-Thread, solange nicht ausgeblendet. Dismissible
+     * ExpansionPanel (SUITE.md "Einheitliche Formular-Optik" Punkt 4, Referenz MeterHub) -
+     * abgeloest die alte RowLayout-Fassung mit dem generischen Kategorie-Link.
      */
-    private function buildForumHint(): array
+    private function buildForumHint(): ?array
     {
+        if ($this->ReadAttributeBoolean('ForumHintDismissed')) {
+            return null;
+        }
         return [
-            'type' => 'RowLayout',
-            'name' => 'ForumHint',
-            'items' => [
-                ['type' => 'Label', 'caption' => $this->Translate('Feedback and suggestions are welcome in the Symcon forum:')],
-                ['type' => 'Label', 'link' => true, 'caption' => self::FORUM_URL],
-                [
-                    'type'    => 'Button',
-                    'caption' => $this->Translate('Do not show again'),
-                    'onClick' => 'HEISHA_DismissForumHint($id);'
-                ]
+            'type'     => 'ExpansionPanel',
+            'name'     => 'ForumHintPanel',
+            'expanded' => true,
+            'caption'  => $this->Translate('💬  Feedback in the Symcon forum'),
+            'items'    => [
+                ['type' => 'Label', 'caption' => $this->Translate('Feedback and suggestions are welcome in the module thread on the Symcon forum.')],
+                ['type' => 'Button', 'caption' => $this->Translate('Go to the forum thread'), 'onClick' => "echo '" . self::FORUM_URL . "';", 'link' => true],
+                ['type' => 'Button', 'caption' => $this->Translate('Understood - do not show again'), 'onClick' => 'HEISHA_DismissForumHint($id);']
             ]
         ];
     }
@@ -456,7 +472,32 @@ class HeishaMon extends IPSModule
     public function DismissForumHint()
     {
         $this->WriteAttributeBoolean('ForumHintDismissed', true);
-        $this->UpdateFormField('ForumHint', 'visible', false);
+        $this->UpdateFormField('ForumHintPanel', 'visible', false);
+    }
+
+    /**
+     * "Ueber dieses Modul": Lizenz + Spenden, ganz unten, NACH dem Forum-Hinweis. Bewusst NICHT
+     * dismissible (kein Attribut, kein AckX()) - eine Lizenz ist kein einmaliger Hinweis.
+     * Wortlaut verbundweit identisch ("Variante A"), SUITE.md "Einheitliche Formular-Optik"
+     * Punkt 5, Referenz MeterHub. LICENSE_URL zeigt auf `beta`, NICHT `main` - der main-Stand
+     * ist noch vor dem Lizenzwechsel (v1.2.1), main traegt dort noch MIT (Store-Uebernahme
+     * durch Dietmar noch offen, siehe CHANGELOG).
+     */
+    private function buildLicenseHint(): array
+    {
+        return [
+            'type'     => 'ExpansionPanel',
+            'expanded' => false,
+            'caption'  => $this->Translate('🧡  About this module'),
+            'items'    => [
+                ['type' => 'Label', 'caption' => $this->Translate('Born out of genuine enthusiasm for my own system - and quite a few late-night typing sessions. Still: software hobby or not, this is intellectual property and real work went into it.')],
+                ['type' => 'Label', 'caption' => $this->Translate('License: PolyForm Noncommercial 1.0.0 - free for private and non-commercial use, commercial use requires a separate license from the rights holder.')],
+                ['type' => 'Button', 'caption' => $this->Translate('View license text'), 'onClick' => "echo '" . self::LICENSE_URL . "';", 'link' => true],
+                ['type' => 'Label', 'caption' => $this->Translate('Commercial use or license questions? Just get in touch: dietmar@gureth.eu')],
+                ['type' => 'Label', 'caption' => $this->Translate('Do you like the module and still want to leave something behind? A small donation is very welcome - entirely optional, no strings attached.')],
+                ['type' => 'Button', 'caption' => $this->Translate('☕  Donate via PayPal'), 'onClick' => "echo '" . self::PAYPAL_URL . "';", 'link' => true]
+            ]
+        ];
     }
 
     /**

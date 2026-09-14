@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.28.0 — 2026-09-14
+
+- Neues "🧡 Über dieses Modul"-Panel ganz unten im Formular (SUITE.md "Einheitliche Formular-Optik" Punkt 5, verbundweit einheitlicher Wortlaut "Variante A"): dokumentiert die Lizenz (PolyForm Noncommercial) und bietet einen optionalen Spenden-Knopf zu PayPal - dauerhaft sichtbar, eingeklappt, bewusst NICHT ausblendbar (anders als die übrigen Hinweis-Panels). Der Symcon-Forum-Hinweis wurde vom alten RowLayout-Stil auf ein ausblendbares ExpansionPanel umgestellt (Muster: MeterHub) und verlinkt jetzt den echten, im Forum bestätigten HeishaMon-Vorstellungs-Thread statt der allgemeinen PHP-Modul-Kategorie. Anlass: EMS-Fund im Auftrag von Dietmar vor dem Store-Launch (zwei echte Lücken gegenüber der Verbund-Konvention)
+
 ## 1.27.0 — 2026-09-14
 
 - Neues "👋 Wozu dieses Modul?"-Panel ganz oben im Formular, noch vor dem "Neu in Version"-Panel: erklärt in zwei Sätzen, was das Modul tut (lokale MQTT-Anbindung einer Panasonic-Wärmepumpe über die HeishaMon-Platine, ohne Cloud-Abhängigkeit) und welchen Nutzen das stiftet (Auswertung/Automatisierung wie jedes Symcon-Gerät, Einbindung in den NRG-Stack), mit Verweis auf WPHub als Cloud-Alternative ohne eigene HeishaMon-Platine. Aufgeklappt, einmalig dauerhaft ausblendbar (nicht versioniert wie das News-Panel). Verbundweite Konvention (SUITE.md "Einheitliche Formular-Optik" Punkt 0, Auslöser: ein Nutzer wusste beim ersten Öffnen nicht, wofür das Modul gut ist), Referenzimplementierung MeterHub
