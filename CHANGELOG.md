@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2 — 2026-09-16
+
+- Undokumentierte Presentation-Parameter entfernt, die der Symcon-Kernel bislang nur still ignoriert hat: `CAPTION_ON`/`CAPTION_OFF` bei `VARIABLE_PRESENTATION_SWITCH` sowie `DIGITS` bei `VARIABLE_PRESENTATION_VALUE_INPUT` (schaltbare Ganzzahlfelder ohne Min/Max wie Zonen-Solltemperaturen). Kein sichtbarer Verhaltensunterschied - beide Parameter hatten laut SDK-Dokumentation nie eine Wirkung. Anlass: eine bevorstehende strengere Presentation-Validierung im Symcon-Kernel macht aus dem bisherigen stillen Ignorieren einen harten Abbruch. Gezielter Vorab-Fix für den Store-Stand, unabhängig vom weiter fortgeschrittenen `beta`-Zweig
+
 ## 1.1.1 — 2026-06-18
 
 - `HEISHA_GetFunctions()` liefert zusätzlich `Measured` (bool): unterscheidet echte Messung von der HeishaMon-Schätzung. Notwendig, weil Leistungs- und Energievariable unabhängig konfigurierbar sind und die Genauigkeit sich daher nicht aus `EnergyID` ableiten lässt

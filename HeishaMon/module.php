@@ -885,10 +885,12 @@ class HeishaMon extends IPSModule
         switch ($definition['kind']) {
             case 'bool':
                 if (array_key_exists('set', $definition)) {
+                    //CAPTION_ON/CAPTION_OFF existieren bei VARIABLE_PRESENTATION_SWITCH laut
+                    //SDK-Doku nicht (gegengeprueft 16.09.2026) - eine kommende strengere
+                    //Presentation-Validierung im Kernel wuerde das hart ablehnen statt wie
+                    //bisher still zu ignorieren. Kein sichtbarer Verhaltensunterschied.
                     return [
-                        'PRESENTATION' => VARIABLE_PRESENTATION_SWITCH,
-                        'CAPTION_ON'   => $this->Translate($definition['on'] ?? 'On'),
-                        'CAPTION_OFF'  => $this->Translate($definition['off'] ?? 'Off')
+                        'PRESENTATION' => VARIABLE_PRESENTATION_SWITCH
                     ];
                 }
                 return [
@@ -953,11 +955,13 @@ class HeishaMon extends IPSModule
                 if (array_key_exists('set', $definition)) {
                     //Schaltbare Werte ohne festen Bereich brauchen die Eingabe-Darstellung;
                     //die reine Wertedarstellung kann keine Eingabe und laesst die Konsole
-                    //mit "Unexpected presentation when trying to determine minimum" abstuerzen
+                    //mit "Unexpected presentation when trying to determine minimum" abstuerzen.
+                    //DIGITS existiert bei VARIABLE_PRESENTATION_VALUE_INPUT laut SDK-Doku nicht
+                    //(gegengeprueft 16.09.2026) - betrifft hier ausschliesslich kind=int-Felder
+                    //ohne eigenes 'digits' (Default 0), also kein sichtbarer Unterschied.
                     return [
                         'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_INPUT,
-                        'SUFFIX'       => $definition['suffix'] ?? '',
-                        'DIGITS'       => $definition['digits'] ?? 0
+                        'SUFFIX'       => $definition['suffix'] ?? ''
                     ];
                 }
                 return [
