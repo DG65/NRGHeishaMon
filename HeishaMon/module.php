@@ -2217,10 +2217,13 @@ class HeishaMon extends IPSModule
     private function maintainRelayVariable(string $ident, string $caption, int $position, bool $enabled)
     {
         $variableID = @$this->GetIDForIdent($ident);
+        //CAPTION_ON/CAPTION_OFF existieren laut SDK-Doku fuer VARIABLE_PRESENTATION_SWITCH nicht
+        //(nur Icon-/Glow-Parameter) - bisher stillschweigend ignoriert, eine kommende strengere
+        //Presentation-Validierung wuerde hart abbrechen (Tessie-Fund, per Doku gegengeprueft
+        //16.09.2026). Eigene Ein-/Aus-Beschriftung ist mit SWITCH ohnehin nie darstellbar
+        //gewesen, kein sichtbarer Verhaltensunterschied durch das Entfernen.
         $presentation = [
-            'PRESENTATION' => VARIABLE_PRESENTATION_SWITCH,
-            'CAPTION_ON'   => $this->Translate('On'),
-            'CAPTION_OFF'  => $this->Translate('Off')
+            'PRESENTATION' => VARIABLE_PRESENTATION_SWITCH
         ];
         if ($enabled && $variableID !== false) {
             $current = @IPS_GetVariablePresentation($variableID);
@@ -2271,10 +2274,13 @@ class HeishaMon extends IPSModule
         switch ($definition['kind']) {
             case 'bool':
                 if (array_key_exists('set', $definition)) {
+                    //CAPTION_ON/CAPTION_OFF existieren bei VARIABLE_PRESENTATION_SWITCH laut
+                    //SDK-Doku nicht (Tessie-Fund, gegengeprueft 16.09.2026) - eigene Ein-/Aus-
+                    //Beschriftung fuer schaltbare bool-Werte geht nur ueber den nicht-settable
+                    //Zweig unten (VALUE_PRESENTATION mit OPTIONS), dafuer gibt es bei SWITCH
+                    //keine Entsprechung.
                     return [
-                        'PRESENTATION' => VARIABLE_PRESENTATION_SWITCH,
-                        'CAPTION_ON'   => $this->Translate($definition['on'] ?? 'On'),
-                        'CAPTION_OFF'  => $this->Translate($definition['off'] ?? 'Off')
+                        'PRESENTATION' => VARIABLE_PRESENTATION_SWITCH
                     ];
                 }
                 return [
@@ -2335,11 +2341,14 @@ class HeishaMon extends IPSModule
                 if (array_key_exists('set', $definition)) {
                     //Schaltbare Werte ohne festen Bereich brauchen die Eingabe-Darstellung;
                     //die reine Wertedarstellung kann keine Eingabe und laesst die Konsole
-                    //mit "Unexpected presentation when trying to determine minimum" abstuerzen
+                    //mit "Unexpected presentation when trying to determine minimum" abstuerzen.
+                    //DIGITS existiert bei VARIABLE_PRESENTATION_VALUE_INPUT laut SDK-Doku nicht
+                    //(nur PREFIX/SUFFIX/MULTILINE) - bisher stillschweigend ignoriert, Tessie-Fund
+                    //gegengeprueft 16.09.2026. Betrifft hier ausschliesslich kind=int-Felder ohne
+                    //eigenes 'digits' (Default 0), also kein sichtbarer Unterschied durchs Entfernen.
                     return [
                         'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_INPUT,
-                        'SUFFIX'       => $definition['suffix'] ?? '',
-                        'DIGITS'       => $definition['digits'] ?? 0
+                        'SUFFIX'       => $definition['suffix'] ?? ''
                     ];
                 }
                 return [

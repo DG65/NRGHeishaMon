@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.28.1 — 2026-09-16
+
+- Undokumentierte Presentation-Parameter entfernt, die der Symcon-Kernel bislang nur still ignoriert hat: `CAPTION_ON`/`CAPTION_OFF` bei `VARIABLE_PRESENTATION_SWITCH` (Relais 1+2, schaltbare bool-Werte ohne festen Bereich) sowie `DIGITS` bei `VARIABLE_PRESENTATION_VALUE_INPUT` (schaltbare Ganzzahlfelder ohne Min/Max wie Zonen-Solltemperaturen). Kein sichtbarer Verhaltensunterschied - beide Parameter hatten laut SDK-Dokumentation nie eine Wirkung, `DIGITS` betraf ausschließlich `kind=int`-Felder ohne eigenes `digits` (Standard bereits 0). Anlass: Tessie/Dr. Niels haben eine bevorstehende strengere Presentation-Validierung im Symcon-Kernel angekündigt (Ninja-Build in Kürze, öffentliche Beta nächste Woche), die aus dem bisherigen stillen Ignorieren einen harten Abbruch macht. Gegen die offizielle SDK-Doku (Darstellungen: Schalter, Werteingabe) verifiziert, nicht nur den Hinweis übernommen
+
 ## 1.28.0 — 2026-09-14
 
 - Neues "🧡 Über dieses Modul"-Panel ganz unten im Formular (SUITE.md "Einheitliche Formular-Optik" Punkt 5, verbundweit einheitlicher Wortlaut "Variante A"): dokumentiert die Lizenz (PolyForm Noncommercial) und bietet einen optionalen Spenden-Knopf zu PayPal - dauerhaft sichtbar, eingeklappt, bewusst NICHT ausblendbar (anders als die übrigen Hinweis-Panels). Der Symcon-Forum-Hinweis wurde vom alten RowLayout-Stil auf ein ausblendbares ExpansionPanel umgestellt (Muster: MeterHub) und verlinkt jetzt den echten, im Forum bestätigten HeishaMon-Vorstellungs-Thread statt der allgemeinen PHP-Modul-Kategorie. Anlass: EMS-Fund im Auftrag von Dietmar vor dem Store-Launch (zwei echte Lücken gegenüber der Verbund-Konvention)
