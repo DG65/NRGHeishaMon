@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.28.2 — 2026-09-18
+
+- Doku & Hilfe geprüft und eine Ungenauigkeit korrigiert: der Archivierungs-Abschnitt nannte nur "Leistung", tatsächlich werden seit 1.15.0 sowohl die elektrische als auch die thermische Gesamtleistung automatisch archiviert - Text nennt jetzt beides. Rest des Doku-Panels gegen den aktuellen Formularstand geprüft, keine weiteren Lücken gefunden
+
 ## 1.28.1 — 2026-09-16
 
 - Undokumentierte Presentation-Parameter entfernt, die der Symcon-Kernel bislang nur still ignoriert hat: `CAPTION_ON`/`CAPTION_OFF` bei `VARIABLE_PRESENTATION_SWITCH` (Relais 1+2, schaltbare bool-Werte ohne festen Bereich) sowie `DIGITS` bei `VARIABLE_PRESENTATION_VALUE_INPUT` (schaltbare Ganzzahlfelder ohne Min/Max wie Zonen-Solltemperaturen). Kein sichtbarer Verhaltensunterschied - beide Parameter hatten laut SDK-Dokumentation nie eine Wirkung, `DIGITS` betraf ausschließlich `kind=int`-Felder ohne eigenes `digits` (Standard bereits 0). Anlass: Tessie/Dr. Niels haben eine bevorstehende strengere Presentation-Validierung im Symcon-Kernel angekündigt (Ninja-Build in Kürze, öffentliche Beta nächste Woche), die aus dem bisherigen stillen Ignorieren einen harten Abbruch macht. Gegen die offizielle SDK-Doku (Darstellungen: Schalter, Werteingabe) verifiziert, nicht nur den Hinweis übernommen

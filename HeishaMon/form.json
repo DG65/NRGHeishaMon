@@ -44,7 +44,7 @@
                 },
                 {
                     "type": "Label",
-                    "caption": "📊 Archiving: Automatically enables logging for the monitoring datapoints (power, flow/return/outside temperature, COP, defrost, compressor starts/hours, WiFi quality, MQTT reconnects) so time-series tiles can show day/week/month/year charts. Each variable is activated only once - disabling logging manually in the archive handler is respected permanently."
+                    "caption": "📊 Archiving: Automatically enables logging for the monitoring datapoints (electrical and thermal power, flow/return/outside temperature, COP, defrost, compressor starts/hours, WiFi quality, MQTT reconnects) so time-series tiles can show day/week/month/year charts. Each variable is activated only once - disabling logging manually in the archive handler is respected permanently."
                 },
                 {
                     "type": "Label",
