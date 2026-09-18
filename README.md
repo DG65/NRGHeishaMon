@@ -231,7 +231,13 @@ HEISHA_SendSetCommand(12345, 'SetQuietMode', '2');
 
 // Heiz-/Kühlkurven setzen (SET16, JSON laut HeishaMon-Doku)
 HEISHA_SetCurves(12345, '{"zone1":{"heat":{"target":{"high":35,"low":25},"outside":{"high":15,"low":-15}}}}');
+
+// Heizkurven strukturiert lesen/setzen (Zwei-Punkt-Modell, ab Version 1.29.0)
+$curve = HEISHA_GetHeatingCurve(12345);   // ['curveModel'=>'twoPoint','curveWritable'=>true,'zones'=>['z1'=>['heat'=>[...]|null,'cool'=>...],'z2'=>...|null]]
+HEISHA_SetHeatingCurve(12345, 'z1', 'heat', 35, 25, 15, -15);   // Zone, Modus, Vorlauf hoch/tief, Aussen hoch/tief (°C)
 ```
+
+`HEISHA_SetHeatingCurve` liefert `true`, sobald der Befehl abgeschickt wurde (Zone vorhanden, Werte plausibel, MQTT-Gateway aktiv) — die Wärmepumpe quittiert das nicht, ob die Kurve tatsächlich übernommen wurde, zeigt erst das spätere Zurücklesen mit `HEISHA_GetHeatingCurve`. Ungültige Eingaben oder eine nicht aktive Zone 2 ergeben `false`, keine Exception.
 
 ## Hinweise zur Konfigurationsmaske
 

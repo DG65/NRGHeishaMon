@@ -42,7 +42,7 @@ Reihenfolge von oben: (1) **🆕 Neu in Version X.Y** — aufgeklappt, pro Versi
 
 **Layout-Qualität:** logische Gruppierung (Doku vor Funktionsfeldern, Zusammengehöriges in einem Panel), Step-by-Step ohne Scroll-Zickzack (keine Sprünge zwischen Kernfeldern und Nebenpanels), Feldkanten auf einer Linie statt kreuz und quer.
 
-Aktueller Forum-Link zeigt auf die allgemeine PHP-Module-Kategorie (`community.symcon.de/c/erweiterungen/php-module-entwicklung/21`), da kein bestätigter HeishaMon-eigener Thread existiert — bei Bedarf durch den konkreten Thread ersetzen.
+Der Forum-Hinweis verlinkt den echten HeishaMon-Thread (`community.symcon.de/t/modul-heishamon-panasonic-aquarea-waermepumpe-in-ip-symcon/143993`, seit 1.28.0), dazu kommt als letztes Panel „🧡 Über dieses Modul" (Lizenz/Spenden, nicht ausblendbar).
 
 **Feld-Tooltips:** Symcon kennt keine nativen Mouseover-Tooltips (form.json/Listenspalten haben kein `tooltip`-Attribut). Für erklärungsbedürftige Einzelfelder ein `PopupButton` direkt daneben in einem `RowLayout` — kurze, immer sichtbare Erklärungen bleiben als `Label`.
 
@@ -66,7 +66,7 @@ Die Übernahme nach `main` entscheidet Dietmar von sich aus (nicht nachfragen, s
 
 ## Store-Vorbereitung (13.09.2026, Status 15.09.2026)
 
-Dietmar hat den Symcon-Store-Start bestätigt, HeishaMon ist eines der startrelevanten Module (Zeitrahmen grob 6-10 Wochen). Bis dahin: Store-Reife statt neue Features priorisieren, Symcon-Store-Review-Checkliste in SUITE.md regelmäßig gegenprüfen (zuletzt 9b/9c/9d am 13.09.2026 durchgegangen, siehe CHANGELOG 1.25.2 — nur 9c war ein echter Fund).
+Dietmar hat den Symcon-Store-Start bestätigt, HeishaMon ist eines der startrelevanten Module (Zeitrahmen grob 6-10 Wochen). Store-Reife ist hergestellt (komplette Checkliste am 14.09.2026 gegen den Code geprüft, Store-Listung Beta seit 15.09.2026, main am 16.09.2026 auf beta-Stand gebracht) — neue Features sind wieder erlaubt, aber mit Migrationsvergleich vor jedem Push und Checkliste (SUITE.md) bei größeren Änderungen im Blick.
 
 **Store-Status (15.09.2026):** HeishaMon ist jetzt im Symcon-Store gelistet, Kanal **Beta**. Stable-Kanal noch offen (main-Branch ist Store-seitig noch der alte MIT-Stand, siehe LICENSE_URL-Hinweis im Code) - Übernahme main entscheidet Dietmar selbst (siehe Feedback-Notiz „beta→main-Freigabe" im Gedächtnis).
 

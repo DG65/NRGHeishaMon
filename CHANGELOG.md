@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.29.0 — 2026-09-18
+
+- Neue Vertragsfunktionen `HEISHA_GetHeatingCurve()` und `HEISHA_SetHeatingCurve()` (contractVersion 1.12 → 1.13) für den grafischen Heizkurven-Editor im NRGDashboard-WP-Monitor: Zwei-Punkt-Modell je Zone (z1/z2) und Modus (heat/cool) mit `targetHighC`/`targetLowC`/`outsideHighC`/`outsideLowC` in ganzen °C, alles auf einmal ohne MQTT-Roundtrip aus den bereits empfangenen Variablen. Ein Modus ist `null`, solange nicht alle vier Werte empfangen sind; `z2` ist `null`, wenn keine Zone 2 aktiv ist (Zones_State, sonst Vorhandensein der Zone-2-Kurvenvariablen). `SetHeatingCurve` sendet das SET16-JSON der Firmware (an `commands.cpp` `set_curves()` geprüft: alle 16 Kombinationen zone1/zone2 x heat/cool x target/outside x high/low existieren real) und liefert `true` nur für „abgeschickt" - HeishaMon quittiert Set-Befehle nicht, ungültige Eingabe/fehlende Zone 2/kein aktives Gateway ergibt `false`, keine Exception; Wertegrenze -50..100 °C nur als Schutz vor Byte-Überlauf, nicht die echten Panasonic-Grenzen. Mit Dashboard abgestimmt, bei EMS in SUITE.md unter „Funktionspaare oberhalb des Feldregisters" erfasst. Keine neuen Formularfelder, `HEISHA_SetCurves` bleibt unverändert
+
 ## 1.28.2 — 2026-09-18
 
 - Doku & Hilfe geprüft und eine Ungenauigkeit korrigiert: der Archivierungs-Abschnitt nannte nur "Leistung", tatsächlich werden seit 1.15.0 sowohl die elektrische als auch die thermische Gesamtleistung automatisch archiviert - Text nennt jetzt beides. Rest des Doku-Panels gegen den aktuellen Formularstand geprüft, keine weiteren Lücken gefunden

@@ -1858,6 +1858,9 @@ class HeishaMon extends IPSModule
      *   forceHeaterStateID Ab contractVersion 1.12: Notheizstab-Taste aktiv
      *            (main/Force_Heater_State, Boolean) - entspricht dem physischen Heizstab-Knopf
      *            an der Fernbedienung (SetForceHeater).
+     *   Heizkurven Ab contractVersion 1.13: kein Feld, sondern das Funktionspaar
+     *            HEISHA_GetHeatingCurve()/HEISHA_SetHeatingCurve() (Zwei-Punkt-Modell je Zone
+     *            und Modus, siehe dort; SUITE.md "Funktionspaare oberhalb des Feldregisters").
      *   contractVersion 'Major.Minor' des Vertrags (Suite-Konvention, SUITE.md im EMS-Repo).
      *            Major nur bei Bruch; Kompatibilitaet nur innerhalb derselben Major. Fehlt = '1.0'.
      */
@@ -1916,7 +1919,7 @@ class HeishaMon extends IPSModule
                 'internalHeaterStateID' => $this->idForIdent('Internal_Heater_State'),
                 'externalHeaterStateID' => $this->idForIdent('External_Heater_State'),
                 'forceHeaterStateID'   => $this->idForIdent('Force_Heater_State'),
-                'contractVersion'      => '1.12'
+                'contractVersion'      => '1.13'
             ]
         ];
     }
@@ -2040,6 +2043,108 @@ class HeishaMon extends IPSModule
             return;
         }
         $this->SendSetCommand('SetCurves', $CurvesJSON);
+    }
+
+    /**
+     * Heizkurven lesen (Vertrag mit NRGDashboard/EMS, SUITE.md "Funktionspaare oberhalb des
+     * Feldregisters", contractVersion 1.13). Zwei-Punkt-Modell: je Zone und Modus zwei
+     * Ankerpunkte Aussentemperatur -> Vorlauf-Solltemperatur, alles ganzzahlig in °C (echte
+     * Firmware-Aufloesung). Alles auf einmal, ohne MQTT-Roundtrip - gelesen werden die bereits
+     * empfangenen Variablen. Ein Modus ist null, solange nicht alle vier Werte empfangen sind;
+     * z2 ist null, wenn keine Zone 2 aktiv ist. curveWritable meldet nur die Faehigkeit des
+     * Moduls (immer true), nicht die Erreichbarkeit - dafuer gibt es reachable in GetFunctions().
+     */
+    public function GetHeatingCurve(): array
+    {
+        $zones = [];
+        foreach (['z1' => 'Z1', 'z2' => 'Z2'] as $zone => $prefix) {
+            if (!$this->isCurveZoneActive($zone)) {
+                $zones[$zone] = null;
+                continue;
+            }
+            $zones[$zone] = [
+                'heat' => $this->readCurve($prefix, 'Heat'),
+                'cool' => $this->readCurve($prefix, 'Cool')
+            ];
+        }
+        return [
+            'curveModel'    => 'twoPoint',
+            'curveWritable' => true,
+            'zones'         => $zones
+        ];
+    }
+
+    /**
+     * Heizkurve einer Zone/eines Modus setzen (zone 'z1'|'z2', mode 'heat'|'cool'). Immer alle
+     * vier Punkte zusammen. true heisst NUR: Zone vorhanden, Werte plausibel, MQTT-Befehl
+     * abgeschickt - HeishaMon quittiert Set-Befehle nicht, ob die Anlage die Kurve uebernommen
+     * hat, zeigt erst das spaetere Zuruecklesen (GetHeatingCurve). Ungueltige Eingabe oder nicht
+     * vorhandene Zone 2 liefert false, keine Exception. Die Bereichsgrenze -50..100 °C schuetzt
+     * nur vor Unsinn/Byte-Ueberlauf in der Firmware (Wert+128), es sind NICHT die echten
+     * Panasonic-Grenzen.
+     */
+    public function SetHeatingCurve(string $Zone, string $Mode, int $TargetHighC, int $TargetLowC, int $OutsideHighC, int $OutsideLowC): bool
+    {
+        if (!in_array($Zone, ['z1', 'z2'], true) || !in_array($Mode, ['heat', 'cool'], true)) {
+            return false;
+        }
+        foreach ([$TargetHighC, $TargetLowC, $OutsideHighC, $OutsideLowC] as $value) {
+            if ($value < -50 || $value > 100) {
+                return false;
+            }
+        }
+        if (!$this->isCurveZoneActive($Zone) || (string) $this->ReadPropertyString('MQTTTopic') === '' || !$this->HasActiveParent()) {
+            return false;
+        }
+        $zoneKey = $Zone === 'z1' ? 'zone1' : 'zone2';
+        $this->SendSetCommand('SetCurves', json_encode([
+            $zoneKey => [$Mode => [
+                'target'  => ['high' => $TargetHighC, 'low' => $TargetLowC],
+                'outside' => ['high' => $OutsideHighC, 'low' => $OutsideLowC]
+            ]]
+        ]));
+        return true;
+    }
+
+    /**
+     * Zone 2 gilt als aktiv, wenn Zones_State sie meldet (1 = nur Zone 2, 2 = beide); ohne
+     * Zones_State-Meldung, wenn mindestens eine ihrer Kurvenvariablen empfangen wurde. Zone 1
+     * ist aktiv, ausser Zones_State meldet ausdruecklich "nur Zone 2".
+     */
+    private function isCurveZoneActive(string $zone): bool
+    {
+        $stateID = $this->idForIdent('Zones_State');
+        $state = $stateID === 0 ? -1 : (int) GetValue($stateID);
+        if ($zone === 'z1') {
+            return $state !== 1;
+        }
+        if ($state === 1 || $state === 2) {
+            return true;
+        }
+        if ($state === 0) {
+            return false;
+        }
+        foreach (['Heat', 'Cool'] as $mode) {
+            foreach (['Target_High', 'Target_Low', 'Outside_High', 'Outside_Low'] as $point) {
+                if ($this->idForIdent('Z2_' . $mode . '_Curve_' . $point . '_Temp') !== 0) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function readCurve(string $prefix, string $mode): ?array
+    {
+        $curve = [];
+        foreach (['targetHighC' => 'Target_High', 'targetLowC' => 'Target_Low', 'outsideHighC' => 'Outside_High', 'outsideLowC' => 'Outside_Low'] as $field => $point) {
+            $variableID = $this->idForIdent($prefix . '_' . $mode . '_Curve_' . $point . '_Temp');
+            if ($variableID === 0) {
+                return null;
+            }
+            $curve[$field] = (int) GetValue($variableID);
+        }
+        return $curve;
     }
 
     private function maintainTopicVariable(string $ident, string $subTopic, array $definition, bool $refreshOnly = false)
