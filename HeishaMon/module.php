@@ -1861,6 +1861,9 @@ class HeishaMon extends IPSModule
      *   Heizkurven Ab contractVersion 1.13: kein Feld, sondern das Funktionspaar
      *            HEISHA_GetHeatingCurve()/HEISHA_SetHeatingCurve() (Zwei-Punkt-Modell je Zone
      *            und Modus, siehe dort; SUITE.md "Funktionspaare oberhalb des Feldregisters").
+     *            Ab contractVersion 1.14 additiv: Verschiebung (zones.zX.shift, boardRulesActive,
+     *            HEISHA_SetHeatingCurveShift) und Bedienfunktionen (HEISHA_GetOperations/
+     *            HEISHA_SetOperation).
      *   contractVersion 'Major.Minor' des Vertrags (Suite-Konvention, SUITE.md im EMS-Repo).
      *            Major nur bei Bruch; Kompatibilitaet nur innerhalb derselben Major. Fehlt = '1.0'.
      */
@@ -1919,7 +1922,7 @@ class HeishaMon extends IPSModule
                 'internalHeaterStateID' => $this->idForIdent('Internal_Heater_State'),
                 'externalHeaterStateID' => $this->idForIdent('External_Heater_State'),
                 'forceHeaterStateID'   => $this->idForIdent('Force_Heater_State'),
-                'contractVersion'      => '1.13'
+                'contractVersion'      => '1.14'
             ]
         ];
     }
@@ -2063,15 +2066,115 @@ class HeishaMon extends IPSModule
                 continue;
             }
             $zones[$zone] = [
-                'heat' => $this->readCurve($prefix, 'Heat'),
-                'cool' => $this->readCurve($prefix, 'Cool')
+                'heat'  => $this->readCurve($prefix, 'Heat'),
+                'cool'  => $this->readCurve($prefix, 'Cool'),
+                'shift' => [
+                    'heat' => $this->readShift($prefix, 'Heat'),
+                    'cool' => $this->readShift($prefix, 'Cool')
+                ]
             ];
         }
+        $rulesID = $this->idForIdent('Stats_RulesActive');
         return [
-            'curveModel'    => 'twoPoint',
-            'curveWritable' => true,
-            'zones'         => $zones
+            'curveModel'      => 'twoPoint',
+            'curveWritable'   => true,
+            //Regeln auf der Platine (z.B. der Taktschutz) koennen die Verschiebung ueberschreiben
+            'boardRulesActive' => $rulesID === 0 ? null : ((int) GetValue($rulesID)) > 0,
+            'zones'           => $zones
         ];
+    }
+
+    /**
+     * Verschiebung der Heiz-/Kuehlanforderung einer Zone setzen (Vertrag contractVersion 1.14).
+     * Der Wert der Anlage ist je nach Reglermodus entweder eine Verschiebung (-5..+5) oder direkt
+     * die Vorlauf-Solltemperatur; die Firmware klemmt nichts, ein gesendetes "+2" kaeme im
+     * Direktmodus als 2 °C Vorlauf an. Deshalb false, solange die Anlage nicht nachweislich im
+     * Verschiebungsmodus meldet (mode 'shift'). true heisst nur "abgeschickt".
+     */
+    public function SetHeatingCurveShift(string $Zone, string $Mode, int $ShiftC): bool
+    {
+        if (!in_array($Zone, ['z1', 'z2'], true) || !in_array($Mode, ['heat', 'cool'], true) || $ShiftC < -5 || $ShiftC > 5) {
+            return false;
+        }
+        $prefix = $Zone === 'z1' ? 'Z1' : 'Z2';
+        $shift = $this->readShift($prefix, $Mode === 'heat' ? 'Heat' : 'Cool');
+        if (!$this->isCurveZoneActive($Zone) || $shift['mode'] !== 'shift'
+            || (string) $this->ReadPropertyString('MQTTTopic') === '' || !$this->HasActiveParent()) {
+            return false;
+        }
+        $this->SendSetCommand('Set' . $prefix . ($Mode === 'heat' ? 'Heat' : 'Cool') . 'RequestTemperature', (string) $ShiftC);
+        return true;
+    }
+
+    /**
+     * Bedienfunktionen lesen (Vertrag contractVersion 1.14). value ist null, solange das Topic
+     * nie empfangen wurde; min/max ist der SCHREIBbereich (holiday liest 0/1/2 = aus/geplant/
+     * aktiv, schreibt aber nur 0/1). Die Werte stammen aus den Variablen, die HeishaMon zuletzt
+     * gemeldet hat - nach einem SetOperation() aus diesem Vertrag bleibt der alte Wert stehen,
+     * bis die Anlage die Aenderung meldet (kein optimistisches Vorschreiben).
+     */
+    public function GetOperations(): array
+    {
+        $operations = [];
+        foreach (self::OPERATIONS as $name => $definition) {
+            $variableID = $this->idForIdent($definition['ident']);
+            $value = null;
+            if ($variableID !== 0) {
+                $raw = GetValue($variableID);
+                $value = is_float($raw) ? (int) round($raw) : (int) $raw;
+                if ($value < 0) {
+                    //-1 = unbekannt laut HeishaMon-Doku
+                    $value = null;
+                }
+            }
+            $operations[$name] = ['value' => $value, 'min' => $definition['min'], 'max' => $definition['max']];
+        }
+        return $operations;
+    }
+
+    /**
+     * Bedienfunktion setzen (name quiet|powerful|holiday|emergencyHeater|dhwTargetC). true heisst
+     * NUR: Name und Wert gueltig, Gateway aktiv, MQTT-Befehl abgeschickt - die Anlage quittiert
+     * nicht (und im HeishaMon-Modus "nur mithoeren" verwirft die Platine jeden Befehl, ohne dass
+     * es hier erkennbar waere). Bestaetigung nur durch Zuruecklesen ueber GetOperations().
+     */
+    public function SetOperation(string $Name, int $Value): bool
+    {
+        $definition = self::OPERATIONS[$Name] ?? null;
+        if ($definition === null || $Value < $definition['min'] || $Value > $definition['max']
+            || (string) $this->ReadPropertyString('MQTTTopic') === '' || !$this->HasActiveParent()) {
+            return false;
+        }
+        $this->SendSetCommand($definition['command'], (string) $Value);
+        return true;
+    }
+
+    private const OPERATIONS = [
+        'quiet'           => ['ident' => 'Quiet_Mode_Level',   'command' => 'SetQuietMode',    'min' => 0,  'max' => 3],
+        'powerful'        => ['ident' => 'Powerful_Mode_Time', 'command' => 'SetPowerfulMode', 'min' => 0,  'max' => 3],
+        'holiday'         => ['ident' => 'Holiday_Mode_State', 'command' => 'SetHolidayMode',  'min' => 0,  'max' => 1],
+        'emergencyHeater' => ['ident' => 'Force_Heater_State', 'command' => 'SetForceHeater',  'min' => 0,  'max' => 1],
+        'dhwTargetC'      => ['ident' => 'DHW_Target_Temp',    'command' => 'SetDHWTemp',      'min' => 40, 'max' => 75]
+    ];
+
+    /**
+     * Wert der Heiz-/Kuehlanforderung: -5..+5 = Verschiebung, ab 20 = direkte Vorlauf-Solltemperatur,
+     * alles andere (oder nie empfangen) = unbekannt.
+     */
+    private function readShift(string $prefix, string $mode): array
+    {
+        $variableID = $this->idForIdent($prefix . '_' . $mode . '_Request_Temp');
+        if ($variableID === 0) {
+            return ['mode' => null, 'valueC' => null];
+        }
+        $value = (int) GetValue($variableID);
+        if ($value >= -5 && $value <= 5) {
+            return ['mode' => 'shift', 'valueC' => $value];
+        }
+        if ($value >= 20) {
+            return ['mode' => 'direct', 'valueC' => $value];
+        }
+        return ['mode' => null, 'valueC' => null];
     }
 
     /**

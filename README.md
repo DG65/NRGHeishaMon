@@ -237,6 +237,8 @@ $curve = HEISHA_GetHeatingCurve(12345);   // ['curveModel'=>'twoPoint','curveWri
 HEISHA_SetHeatingCurve(12345, 'z1', 'heat', 35, 25, 15, -15);   // Zone, Modus, Vorlauf hoch/tief, Aussen hoch/tief (°C)
 ```
 
+Ab Version 1.30.0 liefert `HEISHA_GetHeatingCurve` je Zone zusätzlich `shift` (Heizen/Kühlen: `mode` `'shift'` = Verschiebung -5..+5 oder `'direct'` = direkte Vorlauf-Solltemperatur, plus `valueC`) und oben `boardRulesActive`. Verschieben: `HEISHA_SetHeatingCurveShift(12345, 'z1', 'heat', -2)` - nur wenn die Anlage im Verschiebungsmodus meldet, sonst `false`. Regeln auf der Platine (z. B. der Taktschutz) können den Wert überschreiben. Bedienfunktionen: `HEISHA_GetOperations(12345)` (`quiet`, `powerful`, `holiday`, `emergencyHeater`, `dhwTargetC`, je `value`/`min`/`max`) und `HEISHA_SetOperation(12345, 'quiet', 2)`. Einen Urlaubszeitraum kennt HeishaMon nicht (nur an/aus).
+
 `HEISHA_SetHeatingCurve` liefert `true`, sobald der Befehl abgeschickt wurde (Zone vorhanden, Werte plausibel, MQTT-Gateway aktiv) — die Wärmepumpe quittiert das nicht, ob die Kurve tatsächlich übernommen wurde, zeigt erst das spätere Zurücklesen mit `HEISHA_GetHeatingCurve`. Ungültige Eingaben oder eine nicht aktive Zone 2 ergeben `false`, keine Exception.
 
 ## Hinweise zur Konfigurationsmaske
