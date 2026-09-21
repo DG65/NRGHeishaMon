@@ -28,7 +28,7 @@
                 },
                 {
                     "type": "Label",
-                    "caption": "⚡ External energy meter: If a meter (e.g. Shelly 3EM or an S0 meter wired directly to the HeishaMon board) measures the heat pump supply line, select its power (W) and energy counter (kWh, cumulative) variables. The module then reports the measured electrical power instead of the unit's rough estimate and calculates the measured COP plus the daily performance factor. The minimum power threshold prevents misleading COP values from standby noise. If MeterHub already has a meter assigned to function \"heat pump\", a suggestion with a one-click adopt button appears automatically."
+                    "caption": "⚡ External energy meter: If a meter (e.g. Shelly 3EM or an S0 meter wired directly to the HeishaMon board) measures the heat pump supply line, select its power (W) and energy counter (kWh, cumulative) variables. The module then reports the measured electrical power instead of the unit's rough estimate and calculates the measured COP plus the daily performance factor. The minimum power threshold prevents misleading COP values from standby noise. Without an external meter the module uses the unit's own power values; heat pumps of the K/L series and newer report invalid values in the standard power topics, so the module automatically uses the precise values of the extra data block (extra/ topics) as soon as they arrive. If MeterHub already has a meter assigned to function \"heat pump\", a suggestion with a one-click adopt button appears automatically."
                 },
                 {
                     "type": "Label",
@@ -56,7 +56,7 @@
                 },
                 {
                     "type": "Label",
-                    "caption": "🤝 Integration: Other NRG-Stack modules (energy management, system schematic, heat pump monitor) find this heat pump automatically via HEISHA_GetFunctions - no manual variable assignment needed. Full documentation including scripting commands: see the README on GitHub (link below in the forum hint) and the CHANGELOG for version history."
+                    "caption": "🤝 Integration: Other NRG-Stack modules (energy management, system schematic, heat pump monitor) find this heat pump automatically via HEISHA_GetFunctions - no manual variable assignment needed. Scripting commands (including reading and setting heating curves and operating functions) and the version history are documented in the README and CHANGELOG of the module; questions and feedback are welcome in the module thread (link in the forum hint below)."
                 }
             ]
         },

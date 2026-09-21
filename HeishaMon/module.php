@@ -19,8 +19,9 @@ class HeishaMon extends IPSModule
 {
     //Einheitliche Formular-Optik (NRG-Stack-Konvention, siehe SUITE.md): Neu-in-Version-Panel
     //je Release hochzaehlen und die Highlights seit dem letzten Store-Stand eintragen.
-    private const NEWS_VERSION = '1.28.0';
+    private const NEWS_VERSION = '1.31.0';
     private const NEWS_ITEMS = [
+        'New: heat pumps of the K/L series and newer report invalid values in the standard power topics (e.g. -200 W). The module now automatically uses the precise power values of the firmware\'s extra data block (extra/ topics) for electrical power, thermal power and the estimated COP as soon as they arrive - previously these values were wrong on such units unless an external meter was set.',
         'New: a "🧡 About this module" panel at the very bottom of the form documents the license (PolyForm Noncommercial) and offers an optional PayPal donation link - always visible, never dismissible. The Symcon forum hint above it was restyled to match the rest of the module (dismissible panel instead of a plain row) and now links to the module\'s own discussion thread instead of the generic PHP module category.',
         'New: a "What is this module for?" panel now appears at the very top of the form, explaining in a couple of sentences what the module does and why - helpful when setting it up for the first time. Shown once, then dismissible for good.',
         'New: if MeterHub already has a meter assigned to function "heat pump", the "External energy meter" panel now suggests it automatically with a one-click "Adopt from MeterHub" button - no more manual variable search.',
@@ -1012,8 +1013,28 @@ class HeishaMon extends IPSModule
      */
     private function getThermalPower(): float
     {
+        return $this->sumPowerIdents(
+            ['Heat_Power_Production_Extra', 'Cool_Power_Production_Extra', 'DHW_Power_Production_Extra'],
+            ['Heat_Power_Production', 'Cool_Power_Production', 'DHW_Power_Production']
+        );
+    }
+
+    /**
+     * Summe der Leistungswerte. Meldet die Anlage den Extra-Datenblock (K/L-Serie und neuer),
+     * zaehlen ausschliesslich dessen Werte: die alten main/*_Power_*-Topics liefern dort laut
+     * Firmware-Doku ungueltige Werte (z.B. -200). Sonst die alten Topics wie bisher.
+     */
+    private function sumPowerIdents(array $extraIdents, array $standardIdents): float
+    {
+        $idents = $standardIdents;
+        foreach ($extraIdents as $ident) {
+            if (@$this->GetIDForIdent($ident) !== false) {
+                $idents = $extraIdents;
+                break;
+            }
+        }
         $sum = 0.0;
-        foreach (['Heat_Power_Production', 'Cool_Power_Production', 'DHW_Power_Production'] as $ident) {
+        foreach ($idents as $ident) {
             $variableID = @$this->GetIDForIdent($ident);
             if ($variableID !== false) {
                 $sum += floatval(GetValue($variableID));
@@ -1330,14 +1351,10 @@ class HeishaMon extends IPSModule
 
     private function getElectricalPower(): float
     {
-        $sum = 0.0;
-        foreach (['Heat_Power_Consumption', 'Cool_Power_Consumption', 'DHW_Power_Consumption'] as $ident) {
-            $variableID = @$this->GetIDForIdent($ident);
-            if ($variableID !== false) {
-                $sum += floatval(GetValue($variableID));
-            }
-        }
-        return $sum;
+        return $this->sumPowerIdents(
+            ['Heat_Power_Consumption_Extra', 'Cool_Power_Consumption_Extra', 'DHW_Power_Consumption_Extra'],
+            ['Heat_Power_Consumption', 'Cool_Power_Consumption', 'DHW_Power_Consumption']
+        );
     }
 
     /**
@@ -1497,7 +1514,10 @@ class HeishaMon extends IPSModule
         if (in_array($subTopic, [
             'main/Heat_Power_Production', 'main/Heat_Power_Consumption',
             'main/Cool_Power_Production', 'main/Cool_Power_Consumption',
-            'main/DHW_Power_Production', 'main/DHW_Power_Consumption'
+            'main/DHW_Power_Production', 'main/DHW_Power_Consumption',
+            'extra/Heat_Power_Production_Extra', 'extra/Heat_Power_Consumption_Extra',
+            'extra/Cool_Power_Production_Extra', 'extra/Cool_Power_Consumption_Extra',
+            'extra/DHW_Power_Production_Extra', 'extra/DHW_Power_Consumption_Extra'
         ])) {
             $this->updateInternalCOP();
             $this->updateTotalPower();

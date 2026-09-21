@@ -97,7 +97,7 @@ Darin liegen Verknüpfungen auf alle **aktiven** Datenpunkte (inklusive Schaltba
 
 Das Modul berechnet den COP auf zwei Wegen:
 
-- **COP (HeishaMon-Schätzung)** — automatisch aus den HeishaMon-eigenen Werten (thermische Leistung / elektrische Aufnahme über alle Betriebsarten). Keine Konfiguration nötig, aber grob, da Panasonic die Aufnahme nur in ~200-W-Stufen schätzt.
+- **COP (HeishaMon-Schätzung)** — automatisch aus den HeishaMon-eigenen Werten (thermische Leistung / elektrische Aufnahme über alle Betriebsarten). Keine Konfiguration nötig, aber grob, da Panasonic die Aufnahme nur in ~200-W-Stufen schätzt. Bei Wärmepumpen der K/L-Serie und neuer liefern die alten Leistungs-Topics laut HeishaMon-Firmware ungültige Werte (z. B. -200); dort meldet die Platine die Leistungen im **Extra-Datenblock** (`extra/…`-Topics, ab Firmware 4.1.7). Das Modul legt diese als Datenpunkte an und nutzt sie ab Version 1.31.0 automatisch für elektrische Leistung, thermische Gesamtleistung und diese COP-Schätzung, sobald sie eintreffen.
 - **COP (gemessen)** — über einen externen Stromzähler (z. B. Shelly 3EM auf der Wärmepumpen-Phase). Dazu im Konfigurationspanel **Externer Stromzähler (COP / Arbeitszahl)** die Variable **Stromzähler: Wirkleistung der Wärmepumpe (W)** auswählen; der COP wird bei jeder Wertänderung neu berechnet. Unterhalb der **Mindestleistung** (Standard 100 W, gegen Standby-Rauschen) wird 0 ausgegeben.
 
 Wird zusätzlich die Variable **Stromzähler: Gesamtwirkenergie der Wärmepumpe (kWh)** ausgewählt, berechnet das Modul Tageswerte:

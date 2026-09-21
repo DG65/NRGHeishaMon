@@ -200,6 +200,16 @@ class HeishaMonTopics
             's0/Watt/2'                            => ['cap' => 'S0 meter 2 power', 'kind' => 'int', 'suffix' => ' W'],
             's0/WatthourTotal/1'                   => ['cap' => 'S0 meter 1 energy total', 'kind' => 'float', 'suffix' => ' kWh', 'digits' => 3, 'scale' => 0.001],
             's0/WatthourTotal/2'                   => ['cap' => 'S0 meter 2 energy total', 'kind' => 'float', 'suffix' => ' kWh', 'digits' => 3, 'scale' => 0.001],
+
+            // Extra-Datenblock (K/L-Serie und neuer, XTOP0 - XTOP5): praezisere Leistungswerte je
+            // Modus. Bei solchen Anlagen liefern die alten main/*_Power_*-Topics laut Firmware-Doku
+            // ungueltige Werte (z.B. -200), die Summen im Modul nutzen dann diese hier.
+            'extra/Heat_Power_Consumption_Extra'   => ['cap' => 'Heat power consumption (extra data block)', 'kind' => 'int', 'suffix' => ' W'],
+            'extra/Cool_Power_Consumption_Extra'   => ['cap' => 'Cool power consumption (extra data block)', 'kind' => 'int', 'suffix' => ' W'],
+            'extra/DHW_Power_Consumption_Extra'    => ['cap' => 'DHW power consumption (extra data block)', 'kind' => 'int', 'suffix' => ' W'],
+            'extra/Heat_Power_Production_Extra'    => ['cap' => 'Heat power production (extra data block)', 'kind' => 'int', 'suffix' => ' W'],
+            'extra/Cool_Power_Production_Extra'    => ['cap' => 'Cool power production (extra data block)', 'kind' => 'int', 'suffix' => ' W'],
+            'extra/DHW_Power_Production_Extra'     => ['cap' => 'DHW power production (extra data block)', 'kind' => 'int', 'suffix' => ' W'],
         ];
     }
 
@@ -294,7 +304,10 @@ class HeishaMonTopics
             ],
             'Power & COP' => [
                 'main/Heat_Power_Production', 'main/Heat_Power_Consumption', 'main/Cool_Power_Production',
-                'main/Cool_Power_Consumption', 'main/DHW_Power_Production', 'main/DHW_Power_Consumption'
+                'main/Cool_Power_Consumption', 'main/DHW_Power_Production', 'main/DHW_Power_Consumption',
+                'extra/Heat_Power_Production_Extra', 'extra/Heat_Power_Consumption_Extra',
+                'extra/Cool_Power_Production_Extra', 'extra/Cool_Power_Consumption_Extra',
+                'extra/DHW_Power_Production_Extra', 'extra/DHW_Power_Consumption_Extra'
             ],
             'System configuration' => [
                 'main/Buffer_Installed', 'main/Buffer_Tank_Delta', 'main/Solar_Mode', 'main/Solar_On_Delta',
@@ -322,6 +335,9 @@ class HeishaMonTopics
         }
         if (strpos($topic, 'main/') === 0) {
             return substr($topic, strlen('main/'));
+        }
+        if (strpos($topic, 'extra/') === 0) {
+            return substr($topic, strlen('extra/'));
         }
         return str_replace('/', '_', $topic);
     }
