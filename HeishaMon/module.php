@@ -17,24 +17,33 @@ require_once __DIR__ . '/../libs/HeishaMonTopics.php';
  */
 class HeishaMon extends IPSModule
 {
-    //Einheitliche Formular-Optik (NRG-Stack-Konvention, siehe SUITE.md): Neu-in-Version-Panel
-    //je Release hochzaehlen und die Highlights seit dem letzten Store-Stand eintragen.
-    private const NEWS_VERSION = '1.31.0';
-    private const NEWS_ITEMS = [
-        'New: heat pumps of the K/L series and newer report invalid values in the standard power topics (e.g. -200 W). The module now automatically uses the precise power values of the firmware\'s extra data block (extra/ topics) for electrical power, thermal power and the estimated COP as soon as they arrive - previously these values were wrong on such units unless an external meter was set.',
-        'New: a "🧡 About this module" panel at the very bottom of the form documents the license (PolyForm Noncommercial) and offers an optional PayPal donation link - always visible, never dismissible. The Symcon forum hint above it was restyled to match the rest of the module (dismissible panel instead of a plain row) and now links to the module\'s own discussion thread instead of the generic PHP module category.',
-        'New: a "What is this module for?" panel now appears at the very top of the form, explaining in a couple of sentences what the module does and why - helpful when setting it up for the first time. Shown once, then dismissible for good.',
-        'New: if MeterHub already has a meter assigned to function "heat pump", the "External energy meter" panel now suggests it automatically with a one-click "Adopt from MeterHub" button - no more manual variable search.',
-        'New: the "?" help buttons next to individual fields now show the actual question they answer (e.g. "How does the short-cycle guard work?") instead of a bare "?" - you can see what a button explains before clicking it.',
-        'New: the configuration form now warns when an active WPHub instance also exists - if both control the same physical heat pump (one locally via MQTT, one via the Panasonic Comfort Cloud), using both to send commands at the same time can produce contradicting settings. Display only, nothing is blocked or changed automatically.',
-        'New: the short-cycle guard can now also protect cooling mode - the original guard only suppressed the heat request, which has no effect while the unit is cooling. Enable "Also protect cooling mode" in the "Energy saving rulesets" panel.',
-        'New: board diagnostics - WiFi quality, uptime, MQTT reconnects, bus read quality, active rules and firmware version from the HeishaMon stats topic, as variables in the new "Board diagnostics" group.',
-        'New: S0 meters connected directly to the HeishaMon board (power + energy total in kWh) are now available as datapoints - usable as source for the measured COP.',
-        'New: reboot watchdog - after a prolonged MQTT outage the module can restart the HeishaMon board via its /reboot endpoint. See "Reboot watchdog" panel.',
-        'New: energy saving rulesets - the module can deploy a parameterized short-cycle guard directly to the HeishaMon board, where it keeps running even without WiFi/IP-Symcon. See "Energy saving rulesets" panel.',
-        'New: energy saving check - the module assesses the received unit settings (DHW target, backup heater enables, heating curve, cycling) against reference values. See "Energy saving check" panel.',
-        'New: monitoring datapoints (power, temperatures, COP, defrost, compressor starts) are now archived automatically for time-series tiles - see "Archiving" panel to opt out.',
-        'New: optional extra commands (large board relays, SmartGrid mode as a digital SG ready replacement) - see "Extra commands" panel.'
+    //Einheitliche Formular-Optik (NRG-Stack-Konvention, siehe SUITE.md "Funktionspaare..."/
+    //"Einheitliche Formular-Optik" Punkt 1): NEWS_VERSIONS-Array statt einzelnem NEWS_VERSION/
+    //NEWS_ITEMS (verbundweite Umstellung, Dashboard/Dietmar 23.09.2026, Referenz NRGDashboard
+    //Build 201) - Schluessel = Versionsnummer, newsBanner() zeigt gesammelt alles Neuere als
+    //SeenNews. Die alte, ueber viele Releases gewachsene Liste bleibt als EIN Eintrag unter
+    //ihrer letzten bisherigen NEWS_VERSION ('1.31.0') erhalten, neue Eintraege ab jetzt
+    //bekommen ihre eigene Versionsnummer als Schluessel.
+    private const NEWS_VERSIONS = [
+        '1.31.0' => [
+            'New: heat pumps of the K/L series and newer report invalid values in the standard power topics (e.g. -200 W). The module now automatically uses the precise power values of the firmware\'s extra data block (extra/ topics) for electrical power, thermal power and the estimated COP as soon as they arrive - previously these values were wrong on such units unless an external meter was set.',
+            'New: a "🧡 About this module" panel at the very bottom of the form documents the license (PolyForm Noncommercial) and offers an optional PayPal donation link - always visible, never dismissible. The Symcon forum hint above it was restyled to match the rest of the module (dismissible panel instead of a plain row) and now links to the module\'s own discussion thread instead of the generic PHP module category.',
+            'New: a "What is this module for?" panel now appears at the very top of the form, explaining in a couple of sentences what the module does and why - helpful when setting it up for the first time. Shown once, then dismissible for good.',
+            'New: if MeterHub already has a meter assigned to function "heat pump", the "External energy meter" panel now suggests it automatically with a one-click "Adopt from MeterHub" button - no more manual variable search.',
+            'New: the "?" help buttons next to individual fields now show the actual question they answer (e.g. "How does the short-cycle guard work?") instead of a bare "?" - you can see what a button explains before clicking it.',
+            'New: the configuration form now warns when an active WPHub instance also exists - if both control the same physical heat pump (one locally via MQTT, one via the Panasonic Comfort Cloud), using both to send commands at the same time can produce contradicting settings. Display only, nothing is blocked or changed automatically.',
+            'New: the short-cycle guard can now also protect cooling mode - the original guard only suppressed the heat request, which has no effect while the unit is cooling. Enable "Also protect cooling mode" in the "Energy saving rulesets" panel.',
+            'New: board diagnostics - WiFi quality, uptime, MQTT reconnects, bus read quality, active rules and firmware version from the HeishaMon stats topic, as variables in the new "Board diagnostics" group.',
+            'New: S0 meters connected directly to the HeishaMon board (power + energy total in kWh) are now available as datapoints - usable as source for the measured COP.',
+            'New: reboot watchdog - after a prolonged MQTT outage the module can restart the HeishaMon board via its /reboot endpoint. See "Reboot watchdog" panel.',
+            'New: energy saving rulesets - the module can deploy a parameterized short-cycle guard directly to the HeishaMon board, where it keeps running even without WiFi/IP-Symcon. See "Energy saving rulesets" panel.',
+            'New: energy saving check - the module assesses the received unit settings (DHW target, backup heater enables, heating curve, cycling) against reference values. See "Energy saving check" panel.',
+            'New: monitoring datapoints (power, temperatures, COP, defrost, compressor starts) are now archived automatically for time-series tiles - see "Archiving" panel to opt out.',
+            'New: optional extra commands (large board relays, SmartGrid mode as a digital SG ready replacement) - see "Extra commands" panel.'
+        ],
+        '1.32.0' => [
+            'New: the manually linked external power meter (for measured COP / performance factor) now has a selectable unit (Watt or Kilowatt) next to it. A meter reporting kilowatts was previously read as watts, making the reported electrical power, measured COP and daily performance factor wrong by a factor of 1000. Default stays Watt, matching prior behavior.'
+        ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
     //ein Platzhalter auf die allgemeine Modul-Kategorie.
@@ -114,6 +123,10 @@ class HeishaMon extends IPSModule
 
         //COP / Arbeitszahl: externe Messung ueber Stromzaehler (z.B. Shelly 3EM, Phase der Waermepumpe)
         $this->RegisterPropertyInteger('PowerVariable', 0);
+        //Einheit von PowerVariable (26.09.2026, Dashboard-Fund analog NRGDashboard-Forum-Fund
+        //somm: eine frei gewaehlte Variable kann Kilowatt statt Watt liefern, das Modul kannte
+        //nur Watt). Vorgabe "W" aendert am bisherigen Verhalten nichts.
+        $this->RegisterPropertyString('PowerVariableUnit', 'W');
         $this->RegisterPropertyInteger('EnergyVariable', 0);
         $this->RegisterPropertyFloat('COPMinPower', 100);
 
@@ -371,8 +384,27 @@ class HeishaMon extends IPSModule
 
     private function moduleVersion(): string
     {
+        return 'v' . $this->libraryVersion();
+    }
+
+    /**
+     * Rohe Versionsnummer aus library.json, ungecastet (z.B. "1.32.0" oder waehrend einer
+     * Beta-Auslieferung "1.32.0-beta.1"). Direkter Dateizugriff statt IPS_GetLibrary() - genau
+     * das, was moduleVersion() schon immer so gemacht hat, hier fuer AckNews() wiederverwendet.
+     */
+    private function libraryVersion(): string
+    {
         $library = json_decode(file_get_contents(__DIR__ . '/../library.json'), true);
-        return 'v' . ($library['version'] ?? '?');
+        return (string) ($library['version'] ?? '');
+    }
+
+    /**
+     * Reine Versionszahl ohne Beta-/Build-Zusatz ("1.32.0-beta.1" -> "1.32.0") - Vergleichsbasis
+     * fuer NEWS_VERSIONS (SUITE.md "Einheitliche Formular-Optik" Punkt 1).
+     */
+    private function baseVersion(string $version): string
+    {
+        return preg_replace('/-.*$/', '', $version) ?? $version;
     }
 
     /**
@@ -420,12 +452,26 @@ class HeishaMon extends IPSModule
      */
     private function buildNewsPanel(): ?array
     {
-        if ($this->ReadAttributeString('SeenNews') === self::NEWS_VERSION) {
+        $seen = (string) $this->ReadAttributeString('SeenNews');
+        $pending = [];
+        foreach (self::NEWS_VERSIONS as $version => $lines) {
+            if ($seen === '' || version_compare($version, $seen, '>')) {
+                $pending[$version] = $lines;
+            }
+        }
+        if (count($pending) === 0) {
             return null;
         }
+        uksort($pending, 'version_compare');
         $items = [];
-        foreach (self::NEWS_ITEMS as $line) {
-            $items[] = ['type' => 'Label', 'caption' => $this->Translate($line)];
+        $multipleVersions = count($pending) > 1;
+        foreach ($pending as $version => $lines) {
+            if ($multipleVersions) {
+                $items[] = ['type' => 'Label', 'caption' => $this->Translate('Version') . ' ' . $version . ':'];
+            }
+            foreach ($lines as $line) {
+                $items[] = ['type' => 'Label', 'caption' => $this->Translate($line)];
+            }
         }
         $items[] = [
             'type'    => 'Button',
@@ -435,15 +481,22 @@ class HeishaMon extends IPSModule
         return [
             'type'     => 'ExpansionPanel',
             'name'     => 'NewsPanel',
-            'caption'  => $this->Translate('🆕 New in version') . ' ' . self::NEWS_VERSION,
+            'caption'  => $this->Translate('🆕 New up to version') . ' ' . array_key_last($pending),
             'expanded' => true,
             'items'    => $items
         ];
     }
 
+    /**
+     * Merkt sich nicht mehr den zuletzt gezeigten NEWS_VERSIONS-Schluessel, sondern die
+     * tatsaechlich installierte Bibliotheksversion - ein spaeteres Update mit neuem
+     * NEWS_VERSIONS-Eintrag zeigt den Banner damit sicher wieder, auch wenn zwischen den
+     * beiden Versionen kein Eintrag lag (SUITE.md "Einheitliche Formular-Optik" Punkt 1).
+     */
     public function AckNews()
     {
-        $this->WriteAttributeString('SeenNews', self::NEWS_VERSION);
+        $version = $this->baseVersion($this->libraryVersion());
+        $this->WriteAttributeString('SeenNews', $version !== '' ? $version : (string) array_key_last(self::NEWS_VERSIONS));
         $this->UpdateFormField('NewsPanel', 'visible', false);
     }
 
@@ -670,7 +723,7 @@ class HeishaMon extends IPSModule
                 break;
             case VM_UPDATE:
                 if ($SenderID == $this->ReadPropertyInteger('PowerVariable')) {
-                    $this->updateMeasuredCOP(floatval($Data[0]));
+                    $this->updateMeasuredCOP(floatval($Data[0]) * $this->powerVariableScale());
                     $this->updateTotalPower();
                 } elseif ($SenderID == $this->ReadPropertyInteger('EnergyVariable')) {
                     $this->updateDailyValues();
@@ -1983,6 +2036,16 @@ class HeishaMon extends IPSModule
     }
 
     /**
+     * Skalierungsfaktor fuer PowerVariable: die Variable ist frei vom Nutzer gewaehlt, das Modul
+     * kennt ihr Herkunftsprofil nicht (anders als die eigenen Hub-Vertragsfelder, die immer Watt
+     * liefern). Vorgabe "W" (Faktor 1) aendert nichts am bisherigen Verhalten.
+     */
+    private function powerVariableScale(): float
+    {
+        return (string) $this->ReadPropertyString('PowerVariableUnit') === 'kW' ? 1000.0 : 1.0;
+    }
+
+    /**
      * Fuehrt die elektrische Gesamtleistung nach: gemessener Wert des externen Zaehlers,
      * andernfalls die Summe der HeishaMon-Schaetzwerte (Heizen + Kuehlen + Warmwasser).
      */
@@ -1992,7 +2055,7 @@ class HeishaMon extends IPSModule
             return;
         }
         if ($this->hasMeasuredPower()) {
-            $this->SetValue('Power_Total', floatval(GetValue((int) $this->ReadPropertyInteger('PowerVariable'))));
+            $this->SetValue('Power_Total', floatval(GetValue((int) $this->ReadPropertyInteger('PowerVariable'))) * $this->powerVariableScale());
             return;
         }
         $this->SetValue('Power_Total', $this->getElectricalPower());
