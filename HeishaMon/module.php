@@ -345,6 +345,18 @@ class HeishaMon extends IPSModule
      * frueheren AdoptMeterHubAssignment()/MeterHubSuggestion-Buttons - es gibt nichts mehr zu
      * "uebernehmen", die Verbindung wirkt automatisch.
      */
+
+    /**
+     * Entfernter Formular-Knopf (v1.34.0) - MeterHub wird seither automatisch genutzt, ohne
+     * Uebernehmen. Bleibt als wirkungsloser Deprecation-Hinweis stehen (Migrationsvergleich:
+     * eine oeffentliche Funktion darf nicht ersatzlos verschwinden, auch wenn sie nie als
+     * Skript-Befehl dokumentiert war - siehe CLAUDE.md "Idents sind API").
+     */
+    public function AdoptMeterHubAssignment()
+    {
+        echo $this->Translate('This action is no longer needed since v1.34.0 - a MeterHub meter assigned to function "heat pump" is now used automatically, without adopting it first.');
+    }
+
     private function resolvedPowerID(): int
     {
         $manual = $this->ReadPropertyInteger('PowerVariable');
