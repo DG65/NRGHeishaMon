@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.34.0 — 2026-09-29
+
+- MeterHub-Verbindung folgt jetzt dauerhaft der Quelle, statt sie einmalig zu kopieren (EMS-Fund gegen SUITE.md "Verbund-Verbindungen im Formular sichtbar machen", 21.09.2026): der eigene 1.33.0-Fix hatte den gefundenen MeterHub-Zähler zwar korrekt nur in die offene Maske geschrieben statt ihn per `IPS_ApplyChanges` zu erzwingen - aber sobald der Nutzer "Übernehmen" klickte, landete er trotzdem dauerhaft in `PowerVariable`/`EnergyVariable`. Änderte MeterHub die Zuordnung später (anderer Zähler, Funktion entfernt), blieb HeishaMon stur bei der alten Kopie. Jetzt wird nichts mehr übernommen: `PowerVariable`/`EnergyVariable` bleiben ausschließlich für eine bewusste EIGENE Wahl reserviert (jetzt in einem eingeklappten Bereich "✏️ Eigenen Zähler stattdessen verwenden"), MeterHubs Zuordnung wird bei jedem Übernehmen/Formular-Öffnen frisch aufgelöst und wirkt sofort - keine Property, kein "Adopt"-Knopf mehr nötig. Neue Statuszeile im Panel "Externer Stromzähler" zeigt live, was tatsächlich gilt (🔗 automatisch mit Wert+Quelle, ✏️ eigene Wahl, ℹ️ nichts verfügbar), Referenzmuster ChargerHub `LinkStatusLines()`. Betrifft alle Lesestellen (`Power_Total`, gemessener COP, Tages-Arbeitszahl, `HEISHA_GetFunctions()`-Vertrag) und die Live-Aktualisierung bei Wertänderungen. `HEISHA_AdoptMeterHubAssignment()` entfällt ersatzlos - es gibt nichts mehr zu übernehmen
+
 ## 1.33.1 — 2026-09-28
 
 - `AdoptMeterHubAssignment()` füllt jetzt nur noch die Kanäle vor, die MeterHub tatsächlich gefunden hat (WPHub-Fund beim eigenen Nachbau desselben Fixes): `meterHubHeatpumpAssignment()` kann eine Zuordnung mit nur einem der beiden Kanäle liefern (z. B. nur Leistung, kein Energiezähler für die Wärmepumpe). Die 1.33.0-Fassung füllte beide Felder unbedingt, auch mit 0 - ein bereits von Hand in der offenen Maske eingetragener anderer Kanal wäre dabei überschrieben worden

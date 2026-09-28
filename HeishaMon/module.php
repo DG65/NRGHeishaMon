@@ -48,6 +48,9 @@ class HeishaMon extends IPSModule
             'Change: automatic archiving of the monitoring datapoints is now off by default - previously it logged right away, a user should decide this deliberately instead of having to opt out afterwards. Enable "Archive monitoring datapoints automatically" in the "Archiving" panel if you want it.',
             'Fix: the datapoint list in the configuration form now always shows the order the variables actually have - if you reorder them from outside this module (e.g. by dragging in the console object tree), the form used to overwrite that on the next Apply even without touching the list yourself. It now keeps whatever order is really there.',
             'Fix: "Adopt from MeterHub" now only fills in the open form (as with "Reset order and selection") instead of also saving the properties directly - the previous combination could silently lose the filled-in values, since applying properties reloads the form.'
+        ],
+        '1.34.0' => [
+            'Change: a meter MeterHub already has assigned to function "heat pump" is now used automatically for the measured COP - no click needed, and the module keeps following later changes to that assignment instead of a one-time snapshot. A status line in the "External energy meter" panel shows what is actually in effect; your own meter selection (now in a collapsed "Use your own meter instead" section) always takes priority over MeterHub.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -259,21 +262,18 @@ class HeishaMon extends IPSModule
             array_unshift($form['elements'], $crossModuleWarning);
         }
 
-        //MeterHub-Vorschlag: nur solange noch nichts verknuepft ist (0/0) - wer schon manuell
-        //oder per Uebernahme verknuepft hat, soll nicht bei jedem Formularaufruf erneut
-        //beworben werden (1:1 nach WPHubs Vorbild, meterHubHeatpumpAssignment()).
-        $assignment = $this->meterHubHeatpumpAssignment();
-        if ($assignment !== null
-            && $this->ReadPropertyInteger('PowerVariable') <= 0
-            && $this->ReadPropertyInteger('EnergyVariable') <= 0) {
-            $this->patchFormElement($form['elements'], 'MeterHubSuggestion', function (&$element) use ($assignment) {
-                $element['caption'] = sprintf($this->Translate('ℹ️ MeterHub found a meter "%s" assigned to function "heat pump".'), $assignment['label']);
-                $element['visible'] = true;
-            });
-            $this->patchFormElement($form['elements'], 'MeterHubAdoptButton', function (&$element) {
-                $element['visible'] = true;
-            });
-        }
+        //MeterHub-Verbindung live sichtbar machen (SUITE.md "Verbund-Verbindungen im Formular
+        //sichtbar machen", 21.09.2026, EMS-Fund 29.09.2026): frisch berechnet bei jedem
+        //Formular-Aufbau, kein einmaliges Uebernehmen-in-Property mehr - das Modul folgt damit
+        //spaeteren Aenderungen der MeterHub-Zuordnung, statt eine veraltete Kopie zu behalten.
+        [$statusLine, $statusColor] = $this->meterHubLinkStatusLine();
+        $this->patchFormElement($form['elements'], 'MeterHubLinkStatus', function (&$element) use ($statusLine, $statusColor) {
+            $element['caption'] = $statusLine;
+            $element['color'] = $statusColor;
+        });
+        $this->patchFormElement($form['elements'], 'MeterHubOverridePanel', function (&$element) {
+            $element['expanded'] = !$this->meterHubAutomaticActive();
+        });
 
         return json_encode($form);
     }
@@ -336,28 +336,72 @@ class HeishaMon extends IPSModule
      * vorausfuellen (wie ResetVariableList()) - der Nutzer prueft und klickt selbst
      * "Aenderungen uebernehmen".
      */
-    public function AdoptMeterHubAssignment()
+    /**
+     * Wer liefert Leistung/Energiezaehler: eigene Wahl (PowerVariable/EnergyVariable) hat
+     * Vorrang, sonst automatisch die MeterHub-Zuordnung "Waermepumpe" - bei jedem
+     * ApplyChanges/Formular-Aufbau FRISCH aufgeloest, nie einmalig in eine Property kopiert
+     * (SUITE.md "Verbund-Verbindungen im Formular sichtbar machen", 21.09.2026: eine Kopie
+     * wuerde spaeteren Aenderungen der MeterHub-Zuordnung nicht mehr folgen). Ersetzt die
+     * frueheren AdoptMeterHubAssignment()/MeterHubSuggestion-Buttons - es gibt nichts mehr zu
+     * "uebernehmen", die Verbindung wirkt automatisch.
+     */
+    private function resolvedPowerID(): int
     {
+        $manual = $this->ReadPropertyInteger('PowerVariable');
+        if ($manual > 0) {
+            return $manual;
+        }
+        return (int) ($this->meterHubHeatpumpAssignment()['powerID'] ?? 0);
+    }
+
+    private function resolvedEnergyID(): int
+    {
+        $manual = $this->ReadPropertyInteger('EnergyVariable');
+        if ($manual > 0) {
+            return $manual;
+        }
+        return (int) ($this->meterHubHeatpumpAssignment()['energyID'] ?? 0);
+    }
+
+    /**
+     * true, solange kein eigener Zaehler gewaehlt ist UND MeterHub tatsaechlich eine
+     * Waermepumpen-Zuordnung liefert - steuert, ob das Override-Panel eingeklappt bleibt.
+     */
+    private function meterHubAutomaticActive(): bool
+    {
+        return $this->ReadPropertyInteger('PowerVariable') <= 0
+            && $this->ReadPropertyInteger('EnergyVariable') <= 0
+            && $this->meterHubHeatpumpAssignment() !== null;
+    }
+
+    /**
+     * Statuszeile fuer die MeterHub-Verbindung (SUITE.md "Verbund-Verbindungen im Formular
+     * sichtbar machen"): [Text, Farbe]. 🔗 automatisch uebernommen (gruen, 0x2E8B3D), ✏️ eigene
+     * Wahl (Standardfarbe), ℹ️ nichts verfuegbar (Standardfarbe). Werte + Quelle werden genannt,
+     * nicht nur "verbunden".
+     */
+    private function meterHubLinkStatusLine(): array
+    {
+        if ($this->ReadPropertyInteger('PowerVariable') > 0 || $this->ReadPropertyInteger('EnergyVariable') > 0) {
+            return [$this->Translate('✏️ Using your own meter selection below instead of MeterHub.'), -1];
+        }
+        if (!function_exists('MHUB_GetFunctions')) {
+            return [$this->Translate('ℹ️ MeterHub not installed - no automatic meter, select your own below if you have one.'), -1];
+        }
         $found = $this->meterHubHeatpumpAssignment();
         if ($found === null) {
-            $this->UpdateFormField('MeterHubResult', 'caption', $this->Translate('❌ No MeterHub assignment "heat pump" found (anymore).'));
-            $this->UpdateFormField('MeterHubResult', 'visible', true);
-            return;
+            return [$this->Translate('ℹ️ MeterHub installed, but no meter assigned to function "heat pump" - select your own below if you have one.'), -1];
         }
-        //Nur tatsaechlich gefundene Kanaele vorausfuellen (WPHub-Fund 28.09.2026): MeterHub kann
-        //eine Zuordnung mit nur einem der beiden Kanaele liefern (siehe meterHubHeatpumpAssignment()
-        //Zeile 313) - ein bereits von Hand in der offenen Maske eingetragener anderer Kanal darf
-        //dabei nicht auf 0 ueberschrieben werden.
-        if ($found['powerID'] > 0) {
-            $this->UpdateFormField('PowerVariable', 'value', $found['powerID']);
+        $powerNote = $found['powerID'] > 0 ? round(floatval(@GetValue($found['powerID']))) . ' W' : null;
+        $energyNote = $found['energyID'] > 0 ? round(floatval(@GetValue($found['energyID'])), 2) . ' kWh' : null;
+        if ($powerNote !== null && $energyNote !== null) {
+            $text = sprintf($this->Translate('🔗 Power and energy meter from MeterHub "%s" taken over automatically: %s, %s.'), $found['label'], $powerNote, $energyNote);
+        } elseif ($powerNote !== null) {
+            $text = sprintf($this->Translate('🔗 Power meter from MeterHub "%s" taken over automatically: %s (no energy counter assigned there).'), $found['label'], $powerNote);
+        } else {
+            $text = sprintf($this->Translate('🔗 Energy meter from MeterHub "%s" taken over automatically: %s (no power meter assigned there).'), $found['label'], $energyNote);
         }
-        if ($found['energyID'] > 0) {
-            $this->UpdateFormField('EnergyVariable', 'value', $found['energyID']);
-        }
-        $this->UpdateFormField('MeterHubResult', 'caption', sprintf($this->Translate('✅ Adopted from MeterHub "%s" into the open form - click "Apply changes" to save.'), $found['label']));
-        $this->UpdateFormField('MeterHubResult', 'visible', true);
-        $this->UpdateFormField('MeterHubSuggestion', 'visible', false);
-        $this->UpdateFormField('MeterHubAdoptButton', 'visible', false);
+        return [$text, 0x2E8B3D];
     }
 
     /**
@@ -616,9 +660,10 @@ class HeishaMon extends IPSModule
         $this->SetReceiveDataFilter('.*' . $filterTopic . '.*');
         $this->SetStatus(IS_ACTIVE);
 
-        //Variablen der COP-Berechnung anlegen bzw. entfernen, je nach Konfiguration
-        $powerID = $this->ReadPropertyInteger('PowerVariable');
-        $energyID = $this->ReadPropertyInteger('EnergyVariable');
+        //Variablen der COP-Berechnung anlegen bzw. entfernen, je nach Konfiguration (eigene Wahl
+        //ODER automatische MeterHub-Zuordnung - beide zaehlen fuer "ein Zaehler ist da")
+        $powerID = $this->resolvedPowerID();
+        $energyID = $this->resolvedEnergyID();
         $copPresentation = [
             'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
             'DIGITS'       => 2
@@ -745,10 +790,11 @@ class HeishaMon extends IPSModule
                 $this->maintainLinkTree();
                 break;
             case VM_UPDATE:
-                if ($SenderID == $this->ReadPropertyInteger('PowerVariable')) {
-                    $this->updateMeasuredCOP(floatval($Data[0]) * $this->powerVariableScale());
+                if ($SenderID == $this->resolvedPowerID()) {
+                    $scale = $this->ReadPropertyInteger('PowerVariable') > 0 ? $this->powerVariableScale() : 1.0;
+                    $this->updateMeasuredCOP(floatval($Data[0]) * $scale);
                     $this->updateTotalPower();
-                } elseif ($SenderID == $this->ReadPropertyInteger('EnergyVariable')) {
+                } elseif ($SenderID == $this->resolvedEnergyID()) {
                     $this->updateDailyValues();
                 }
                 break;
@@ -769,7 +815,7 @@ class HeishaMon extends IPSModule
             $this->WriteAttributeString('CurrentDay', $today);
             $this->WriteAttributeFloat('HeatWhToday', 0);
             $this->WriteAttributeInteger('LastIntegration', $now);
-            $energyID = $this->ReadPropertyInteger('EnergyVariable');
+            $energyID = $this->resolvedEnergyID();
             if ($energyID > 0 && IPS_VariableExists($energyID)) {
                 $this->WriteAttributeFloat('EnergyCounterBase', floatval(GetValue($energyID)));
             }
@@ -1099,8 +1145,7 @@ class HeishaMon extends IPSModule
         foreach ($this->GetReferenceList() as $referenceID) {
             $this->UnregisterReference($referenceID);
         }
-        foreach (['PowerVariable', 'EnergyVariable'] as $property) {
-            $variableID = $this->ReadPropertyInteger($property);
+        foreach ([$this->resolvedPowerID(), $this->resolvedEnergyID()] as $variableID) {
             if ($variableID > 0 && IPS_VariableExists($variableID)) {
                 $this->RegisterMessage($variableID, VM_UPDATE);
                 $this->RegisterReference($variableID);
@@ -1494,7 +1539,7 @@ class HeishaMon extends IPSModule
      */
     private function updateDailyValues()
     {
-        $energyID = $this->ReadPropertyInteger('EnergyVariable');
+        $energyID = $this->resolvedEnergyID();
         if ($energyID <= 0 || !IPS_VariableExists($energyID) || @$this->GetIDForIdent('COP_Today') === false) {
             return;
         }
@@ -1988,7 +2033,7 @@ class HeishaMon extends IPSModule
     public function GetFunctions(): array
     {
         $powerID = @$this->GetIDForIdent('Power_Total');
-        $energyID = $this->ReadPropertyInteger('EnergyVariable');
+        $energyID = $this->resolvedEnergyID();
         $reachableID = @$this->GetIDForIdent('Reachable');
 
         return [
@@ -2076,7 +2121,7 @@ class HeishaMon extends IPSModule
      */
     private function hasMeasuredPower(): bool
     {
-        $powerID = $this->ReadPropertyInteger('PowerVariable');
+        $powerID = $this->resolvedPowerID();
         return $powerID > 0 && IPS_VariableExists($powerID);
     }
 
@@ -2100,7 +2145,10 @@ class HeishaMon extends IPSModule
             return;
         }
         if ($this->hasMeasuredPower()) {
-            $this->SetValue('Power_Total', floatval(GetValue((int) $this->ReadPropertyInteger('PowerVariable'))) * $this->powerVariableScale());
+            //Die Einheiten-Skalierung gilt nur fuer die eigene Variablenwahl - MeterHubs
+            //Vertrag liefert immer Watt, keine unbekannte Einheit.
+            $scale = $this->ReadPropertyInteger('PowerVariable') > 0 ? $this->powerVariableScale() : 1.0;
+            $this->SetValue('Power_Total', floatval(GetValue($this->resolvedPowerID())) * $scale);
             return;
         }
         $this->SetValue('Power_Total', $this->getElectricalPower());

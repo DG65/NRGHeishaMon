@@ -28,7 +28,7 @@
                 },
                 {
                     "type": "Label",
-                    "caption": "⚡ External energy meter: If a meter (e.g. Shelly 3EM or an S0 meter wired directly to the HeishaMon board) measures the heat pump supply line, select its power and energy counter (kWh, cumulative) variables, and set the power unit (W or kW) to match. The module then reports the measured electrical power instead of the unit's rough estimate and calculates the measured COP plus the daily performance factor. The minimum power threshold prevents misleading COP values from standby noise. Without an external meter the module uses the unit's own power values; heat pumps of the K/L series and newer report invalid values in the standard power topics, so the module automatically uses the precise values of the extra data block (extra/ topics) as soon as they arrive. If MeterHub already has a meter assigned to function \"heat pump\", a suggestion with a one-click adopt button appears automatically."
+                    "caption": "⚡ External energy meter: If a meter (e.g. Shelly 3EM or an S0 meter wired directly to the HeishaMon board) measures the heat pump supply line, select its power and energy counter (kWh, cumulative) variables, and set the power unit (W or kW) to match. The module then reports the measured electrical power instead of the unit's rough estimate and calculates the measured COP plus the daily performance factor. The minimum power threshold prevents misleading COP values from standby noise. Without an external meter the module uses the unit's own power values; heat pumps of the K/L series and newer report invalid values in the standard power topics, so the module automatically uses the precise values of the extra data block (extra/ topics) as soon as they arrive. If MeterHub already has a meter assigned to function \"heat pump\", it is used automatically - no click needed, and the module keeps following later changes to that assignment. A status line shows what is actually in effect; your own meter (optional panel below the fields) always takes priority over MeterHub."
                 },
                 {
                     "type": "Label",
@@ -235,82 +235,76 @@
             "items": [
                 {
                     "type": "Label",
-                    "caption": "If an external energy meter (e.g. Shelly 3EM) measures the heat pump supply line, select its variables here. The module then calculates the measured COP and the daily performance factor from the meter readings."
+                    "caption": "If an external energy meter (e.g. Shelly 3EM) measures the heat pump supply line, the module calculates the measured COP and the daily performance factor from it. Comes automatically from MeterHub if it has a meter assigned to function \"heat pump\" - see the status line below. Only set your own meter below if you want a different one or MeterHub is not installed."
                 },
                 {
                     "type": "Label",
-                    "name": "MeterHubSuggestion",
-                    "caption": "",
-                    "visible": false
+                    "name": "MeterHubLinkStatus",
+                    "caption": "LINKSTATUS"
                 },
                 {
-                    "type": "Button",
-                    "name": "MeterHubAdoptButton",
-                    "caption": "🔗 Adopt from MeterHub",
-                    "visible": false,
-                    "onClick": "HEISHA_AdoptMeterHubAssignment($id);"
-                },
-                {
-                    "type": "Label",
-                    "name": "MeterHubResult",
-                    "caption": "",
-                    "visible": false
-                },
-                {
-                    "type": "RowLayout",
+                    "type": "ExpansionPanel",
+                    "name": "MeterHubOverridePanel",
+                    "caption": "✏️  Use your own meter instead",
+                    "expanded": false,
                     "items": [
                         {
-                            "type": "SelectVariable",
-                            "name": "PowerVariable",
-                            "caption": "Energy meter: active power of the heat pump"
-                        },
-                        {
-                            "type": "Select",
-                            "name": "PowerVariableUnit",
-                            "caption": "Unit",
-                            "width": "110px",
-                            "options": [
-                                { "caption": "Watt", "value": "W" },
-                                { "caption": "Kilowatt", "value": "kW" }
+                            "type": "RowLayout",
+                            "items": [
+                                {
+                                    "type": "SelectVariable",
+                                    "name": "PowerVariable",
+                                    "caption": "Energy meter: active power of the heat pump"
+                                },
+                                {
+                                    "type": "Select",
+                                    "name": "PowerVariableUnit",
+                                    "caption": "Unit",
+                                    "width": "110px",
+                                    "options": [
+                                        { "caption": "Watt", "value": "W" },
+                                        { "caption": "Kilowatt", "value": "kW" }
+                                    ]
+                                },
+                                {
+                                    "type": "PopupButton",
+                                    "caption": "Which variable fits as the power source?",
+                                    "width": "450px",
+                                    "popup": {
+                                        "caption": "Which variable fits as the power source?",
+                                        "items": [
+                                            {
+                                                "type": "Label",
+                                                "caption": "Select a variable with the CURRENT power draw, measured on the heat pump supply line only (e.g. the heat pump phase of a Shelly 3EM, or the datapoint \"S0 meter 1: power\" if an S0 meter is wired to the HeishaMon board). Do not select a whole-house meter - the COP would be meaningless. Set the unit to match the variable (most meters report watts); with a wrong unit the reported power, COP and daily performance factor are off by a factor of 1000. Leave empty to use MeterHub automatically instead, if installed."
+                                            }
+                                        ]
+                                    }
+                                }
                             ]
                         },
                         {
-                            "type": "PopupButton",
-                            "caption": "Which variable fits as the power source?",
-                            "width": "450px",
-                            "popup": {
-                                "caption": "Which variable fits as the power source?",
-                                "items": [
-                                    {
-                                        "type": "Label",
-                                        "caption": "Select a variable with the CURRENT power draw, measured on the heat pump supply line only (e.g. the heat pump phase of a Shelly 3EM, or the datapoint \"S0 meter 1: power\" if an S0 meter is wired to the HeishaMon board). Do not select a whole-house meter - the COP would be meaningless. Set the unit to match the variable (most meters report watts); with a wrong unit the reported power, COP and daily performance factor are off by a factor of 1000. With this set, the module reports Measured=true and calculates the measured COP."
+                            "type": "RowLayout",
+                            "items": [
+                                {
+                                    "type": "SelectVariable",
+                                    "name": "EnergyVariable",
+                                    "caption": "Energy meter: energy counter of the heat pump (kWh)"
+                                },
+                                {
+                                    "type": "PopupButton",
+                                    "caption": "Why must the counter be cumulative?",
+                                    "width": "420px",
+                                    "popup": {
+                                        "caption": "Why must the counter be cumulative?",
+                                        "items": [
+                                            {
+                                                "type": "Label",
+                                                "caption": "Select a CUMULATIVE kWh counter (total energy, ever increasing - e.g. the Shelly total counter or the datapoint \"S0 meter 1: energy total\"). Do NOT select a today/daily value that resets at midnight - the daily performance factor is calculated by this module itself from the counter. The unit must be kWh. Leave empty to use MeterHub automatically instead, if installed."
+                                            }
+                                        ]
                                     }
-                                ]
-                            }
-                        }
-                    ]
-                },
-                {
-                    "type": "RowLayout",
-                    "items": [
-                        {
-                            "type": "SelectVariable",
-                            "name": "EnergyVariable",
-                            "caption": "Energy meter: energy counter of the heat pump (kWh)"
-                        },
-                        {
-                            "type": "PopupButton",
-                            "caption": "Why must the counter be cumulative?",
-                            "width": "420px",
-                            "popup": {
-                                "caption": "Why must the counter be cumulative?",
-                                "items": [
-                                    {
-                                        "type": "Label",
-                                        "caption": "Select a CUMULATIVE kWh counter (total energy, ever increasing - e.g. the Shelly total counter or the datapoint \"S0 meter 1: energy total\"). Do NOT select a today/daily value that resets at midnight - the daily performance factor is calculated by this module itself from the counter. The unit must be kWh."
-                                    }
-                                ]
-                            }
+                                }
+                            ]
                         }
                     ]
                 },
