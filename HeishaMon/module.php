@@ -344,8 +344,16 @@ class HeishaMon extends IPSModule
             $this->UpdateFormField('MeterHubResult', 'visible', true);
             return;
         }
-        $this->UpdateFormField('PowerVariable', 'value', $found['powerID']);
-        $this->UpdateFormField('EnergyVariable', 'value', $found['energyID']);
+        //Nur tatsaechlich gefundene Kanaele vorausfuellen (WPHub-Fund 28.09.2026): MeterHub kann
+        //eine Zuordnung mit nur einem der beiden Kanaele liefern (siehe meterHubHeatpumpAssignment()
+        //Zeile 313) - ein bereits von Hand in der offenen Maske eingetragener anderer Kanal darf
+        //dabei nicht auf 0 ueberschrieben werden.
+        if ($found['powerID'] > 0) {
+            $this->UpdateFormField('PowerVariable', 'value', $found['powerID']);
+        }
+        if ($found['energyID'] > 0) {
+            $this->UpdateFormField('EnergyVariable', 'value', $found['energyID']);
+        }
         $this->UpdateFormField('MeterHubResult', 'caption', sprintf($this->Translate('✅ Adopted from MeterHub "%s" into the open form - click "Apply changes" to save.'), $found['label']));
         $this->UpdateFormField('MeterHubResult', 'visible', true);
         $this->UpdateFormField('MeterHubSuggestion', 'visible', false);

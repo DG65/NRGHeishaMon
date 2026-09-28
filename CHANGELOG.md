@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.33.1 — 2026-09-28
+
+- `AdoptMeterHubAssignment()` füllt jetzt nur noch die Kanäle vor, die MeterHub tatsächlich gefunden hat (WPHub-Fund beim eigenen Nachbau desselben Fixes): `meterHubHeatpumpAssignment()` kann eine Zuordnung mit nur einem der beiden Kanäle liefern (z. B. nur Leistung, kein Energiezähler für die Wärmepumpe). Die 1.33.0-Fassung füllte beide Felder unbedingt, auch mit 0 - ein bereits von Hand in der offenen Maske eingetragener anderer Kanal wäre dabei überschrieben worden
+
 ## 1.33.0 — 2026-09-28
 
 Reaktion auf ein abgelehntes Symcon-Store-Review, drei Funde:
