@@ -43,6 +43,11 @@ class HeishaMon extends IPSModule
         ],
         '1.32.0' => [
             'New: the manually linked external power meter (for measured COP / performance factor) now has a selectable unit (Watt or Kilowatt) next to it. A meter reporting kilowatts was previously read as watts, making the reported electrical power, measured COP and daily performance factor wrong by a factor of 1000. Default stays Watt, matching prior behavior.'
+        ],
+        '1.33.0' => [
+            'Change: automatic archiving of the monitoring datapoints is now off by default - previously it logged right away, a user should decide this deliberately instead of having to opt out afterwards. Enable "Archive monitoring datapoints automatically" in the "Archiving" panel if you want it.',
+            'Fix: the datapoint list in the configuration form now always shows the order the variables actually have - if you reorder them from outside this module (e.g. by dragging in the console object tree), the form used to overwrite that on the next Apply even without touching the list yourself. It now keeps whatever order is really there.',
+            'Fix: "Adopt from MeterHub" now only fills in the open form (as with "Reset order and selection") instead of also saving the properties directly - the previous combination could silently lose the filled-in values, since applying properties reloads the form.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -100,7 +105,9 @@ class HeishaMon extends IPSModule
         //Automatische Archivierung der Monitoring-Datenpunkte (fuer Zeitreihen-Kacheln wie
         //NRGDashboardWPMonitor). Attribut merkt sich einmal aktivierte Variablen, damit
         //eine spaetere Nutzer-Abwahl im Archiv-Handler nicht wieder ueberschrieben wird.
-        $this->RegisterPropertyBoolean('ArchiveMonitoring', true);
+        //Store-Review-Fund (28.09.2026): Standard war 'automatisch an' - ein Nutzer sollte
+        //selbst entscheiden, ob geloggt wird, nicht nachtraeglich abwaehlen muessen.
+        $this->RegisterPropertyBoolean('ArchiveMonitoring', false);
         $this->RegisterAttributeString('ArchivedIdents', '[]');
 
         //Energiespar-Regelwerke: Upload kuratierter Vorlagen auf die HeishaMon-Platine
@@ -191,12 +198,22 @@ class HeishaMon extends IPSModule
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
 
-        //Zeilen in der gespeicherten (per Drag & Drop sortierten) Reihenfolge, Versionsnummer im Doku-Panel
+        //Zeilen in der Reihenfolge, die die Variablen TATSAECHLICH im Objektbaum haben (Store-
+        //Review-Fund 28.09.2026, siehe reconcileOrderWithLivePositions()), nicht blind in der
+        //zuletzt gespeicherten - Versionsnummer im Doku-Panel
         $this->patchFormElement($form['elements'], 'VariableList', function (&$element) {
-            $element['values'] = $this->buildVariableListRows($this->getOrderedTopics(), $this->getSelectionMap());
+            $order = $this->reconcileOrderWithLivePositions(
+                $this->getOrderedTopics(),
+                fn ($topic) => HeishaMonTopics::identFromTopic($topic)
+            );
+            $element['values'] = $this->buildVariableListRows($order, $this->getSelectionMap());
         });
         $this->patchFormElement($form['elements'], 'OneWireList', function (&$element) {
-            $element['values'] = $this->buildOneWireListRows();
+            $order = $this->reconcileOrderWithLivePositions(
+                $this->getOrderedOneWireAddresses(),
+                fn ($address) => 'OneWire_' . $address
+            );
+            $element['values'] = $this->buildOneWireListRows($order);
         });
         $this->patchFormElement($form['elements'], 'DocsPanel', function (&$element) {
             $element['caption'] = $this->Translate('📖  Documentation & help') . ' (' . $this->moduleVersion() . ')';
@@ -310,9 +327,14 @@ class HeishaMon extends IPSModule
     }
 
     /**
-     * Uebernimmt eine per meterHubHeatpumpAssignment() gefundene Zuordnung in
-     * PowerVariable/EnergyVariable - ausschliesslich auf Klick der Formular-Schaltflaeche,
-     * nie automatisch im Hintergrund (gleiches Prinzip wie AckNews/DismissForumHint).
+     * Uebernimmt eine per meterHubHeatpumpAssignment() gefundene Zuordnung in die OFFENE
+     * Konfigurationsmaske - ausschliesslich auf Klick der Formular-Schaltflaeche, nie
+     * automatisch im Hintergrund (gleiches Prinzip wie AckNews/DismissForumHint). Setzt
+     * bewusst KEINE Properties und ruft KEIN ApplyChanges auf (Store-Review-Fund 28.09.2026):
+     * IPS_ApplyChanges laedt das Formular neu, wodurch die direkt danach abgesetzten
+     * UpdateFormField-Aufrufe ins Leere liefen. Stattdessen nur die offene Maske
+     * vorausfuellen (wie ResetVariableList()) - der Nutzer prueft und klickt selbst
+     * "Aenderungen uebernehmen".
      */
     public function AdoptMeterHubAssignment()
     {
@@ -322,16 +344,9 @@ class HeishaMon extends IPSModule
             $this->UpdateFormField('MeterHubResult', 'visible', true);
             return;
         }
-        if ($found['powerID'] > 0) {
-            IPS_SetProperty($this->InstanceID, 'PowerVariable', $found['powerID']);
-        }
-        if ($found['energyID'] > 0) {
-            IPS_SetProperty($this->InstanceID, 'EnergyVariable', $found['energyID']);
-        }
-        IPS_ApplyChanges($this->InstanceID);
         $this->UpdateFormField('PowerVariable', 'value', $found['powerID']);
         $this->UpdateFormField('EnergyVariable', 'value', $found['energyID']);
-        $this->UpdateFormField('MeterHubResult', 'caption', sprintf($this->Translate('✅ Adopted from MeterHub "%s".'), $found['label']));
+        $this->UpdateFormField('MeterHubResult', 'caption', sprintf($this->Translate('✅ Adopted from MeterHub "%s" into the open form - click "Apply changes" to save.'), $found['label']));
         $this->UpdateFormField('MeterHubResult', 'visible', true);
         $this->UpdateFormField('MeterHubSuggestion', 'visible', false);
         $this->UpdateFormField('MeterHubAdoptButton', 'visible', false);
@@ -791,6 +806,30 @@ class HeishaMon extends IPSModule
      * Alle Topics in Anzeige-Reihenfolge: zuerst die gespeicherte (per Drag & Drop
      * sortierte) Liste, danach noch unbekannte Topics in TopicMap-Reihenfolge.
      */
+    /**
+     * Gleicht eine gespeicherte Reihenfolge mit der tatsaechlichen Position der Variablen im
+     * Objektbaum ab (Store-Review-Fund 28.09.2026): ApplyChanges() persistiert beim naechsten
+     * Uebernehmen JEDES Listenfeld der offenen Maske, unabhaengig davon, ob der Nutzer gerade
+     * DIESES Feld angefasst hat - zeigte die Maske also weiterhin nur die zuletzt gespeicherte
+     * Reihenfolge, wurde eine Umsortierung von aussen (z.B. Ziehen im Objektbaum der Konsole)
+     * beim naechsten Uebernehmen automatisch wieder ueberschrieben. Jetzt zeigt die offene
+     * Maske die WIRKLICHE Reihenfolge; nur eine tatsaechliche Umsortierung IN der offenen
+     * Maske selbst fuehrt danach noch zu einer aktiven IPS_SetPosition() in ApplyChanges().
+     * Eintraege ohne existierende Variable (noch nie empfangen) haben keine echte Position und
+     * behalten daher ihren bisherigen relativen Platz, gebuendelt ans Ende.
+     */
+    private function reconcileOrderWithLivePositions(array $items, callable $identFor): array
+    {
+        $sortKeys = [];
+        foreach ($items as $item) {
+            $variableID = @$this->GetIDForIdent($identFor($item));
+            $sortKeys[$item] = $variableID === false ? [1, 0] : [0, IPS_GetObject($variableID)['ObjectPosition']];
+        }
+        $ordered = $items;
+        usort($ordered, fn ($a, $b) => $sortKeys[$a] <=> $sortKeys[$b]);
+        return $ordered;
+    }
+
     private function getOrderedTopics(): array
     {
         $all = HeishaMonTopics::defaultOrder();
@@ -1368,7 +1407,6 @@ class HeishaMon extends IPSModule
         }
         $archiveID = $archives[0];
         $done = json_decode((string) $this->ReadAttributeString('ArchivedIdents'), true) ?: [];
-        $changed = false;
         foreach (self::ARCHIVE_IDENTS as $ident => $isCounter) {
             if (in_array($ident, $done)) {
                 continue;
@@ -1382,13 +1420,12 @@ class HeishaMon extends IPSModule
                 if ($isCounter) {
                     AC_SetAggregationType($archiveID, $variableID, 1);
                 }
-                $changed = true;
             }
             $done[] = $ident;
         }
-        if ($changed) {
-            IPS_ApplyChanges($archiveID);
-        }
+        //Store-Review-Fund (28.09.2026): AC_Set* wirkt seit IPS 5.5 sofort (Archiv arbeitet
+        //intern ueber Attribute statt Properties) - IPS_ApplyChanges auf die Archiv-Instanz
+        //ist seither ueberfluessig.
         $this->WriteAttributeString('ArchivedIdents', json_encode($done));
     }
 
@@ -1788,12 +1825,12 @@ class HeishaMon extends IPSModule
      * Baut die Zeilen der 1-Wire-Sensorliste im Formular: alle jemals empfangenen Adressen,
      * inklusive Name/Auswahl aus der gespeicherten Konfiguration.
      */
-    private function buildOneWireListRows(): array
+    private function buildOneWireListRows(?array $orderedAddresses = null): array
     {
         $seen = json_decode((string) $this->ReadAttributeString('SeenOneWire'), true) ?: [];
         $config = $this->getOneWireConfigMap();
         $rows = [];
-        foreach ($this->getOrderedOneWireAddresses() as $address) {
+        foreach ($orderedAddresses ?? $this->getOrderedOneWireAddresses() as $address) {
             $rows[] = [
                 'Selected' => boolval($config[$address]['Selected'] ?? true),
                 'Name'     => $config[$address]['Name'] ?? '',

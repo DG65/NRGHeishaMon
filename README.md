@@ -69,7 +69,7 @@ Die HeishaMon-Platine kann bis zu zwei S0-Stromzähler direkt auswerten (GPIO12 
 
 ## Platinen-Diagnose
 
-Aus dem `stats`-Topic der Firmware pflegt das Modul die Gruppe **Platinen-Diagnose**: WLAN-Qualität (%), Laufzeit seit Platinen-Neustart, MQTT-Neuverbindungen, Bus-Lesequalität (Anteil fehlerfreier Datagramme vom CN-CNT-Bus), aktive Regeln (zeigt u. a., ob das aufgespielte Taktschutz-Regelwerk läuft) und Firmware-Version. WLAN-Qualität und MQTT-Neuverbindungen werden automatisch archiviert — bei Verbindungsabbrüchen zeigt der Verlauf, ob schwaches WLAN, MQTT-Hänger, heimliche Neustarts (Laufzeit-Sprünge) oder Busfehler (Lesequalität) die Ursache sind.
+Aus dem `stats`-Topic der Firmware pflegt das Modul die Gruppe **Platinen-Diagnose**: WLAN-Qualität (%), Laufzeit seit Platinen-Neustart, MQTT-Neuverbindungen, Bus-Lesequalität (Anteil fehlerfreier Datagramme vom CN-CNT-Bus), aktive Regeln (zeigt u. a., ob das aufgespielte Taktschutz-Regelwerk läuft) und Firmware-Version. Aktiviert man im Formular die Option „Monitoring-Datenpunkte automatisch archivieren" (seit 1.33.0 ein Opt-in, keine Standardeinstellung mehr), werden WLAN-Qualität und MQTT-Neuverbindungen mitgeloggt — bei Verbindungsabbrüchen zeigt der Verlauf dann, ob schwaches WLAN, MQTT-Hänger, heimliche Neustarts (Laufzeit-Sprünge) oder Busfehler (Lesequalität) die Ursache sind.
 
 ## Verknüpfungsstruktur (gruppierte Ansicht)
 

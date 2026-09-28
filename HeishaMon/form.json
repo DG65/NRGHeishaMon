@@ -483,7 +483,7 @@
         },
         {
             "type": "ExpansionPanel",
-            "caption": "📊 Archiving (for monitoring tiles)",
+            "caption": "📊 Archiving (optional, for monitoring tiles)",
             "items": [
                 {
                     "type": "Label",

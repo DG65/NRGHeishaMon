@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.33.0 — 2026-09-28
+
+Reaktion auf ein abgelehntes Symcon-Store-Review, drei Funde:
+
+- Automatische Archivierung ist jetzt standardmäßig **aus** statt an - bisher loggte das Modul sofort, ohne dass der Nutzer zugestimmt hatte; er konnte das nur nachträglich abwählen. Wer die Zeitreihen-Kacheln nutzt, aktiviert die Option "Monitoring-Datenpunkte automatisch archivieren" jetzt bewusst selbst. Dabei auch das seit IPS 5.5 überflüssige `IPS_ApplyChanges` auf die Archiv-Instanz entfernt (Archive Control arbeitet seither intern über Attribute statt Properties und wirkt sofort)
+- "Von MeterHub übernehmen" setzte bisher `PowerVariable`/`EnergyVariable` per `IPS_SetProperty` + `IPS_ApplyChanges` UND danach `UpdateFormField` auf dieselbe Session - das funktioniert nicht, `ApplyChanges` lädt das Formular neu und die `UpdateFormField`-Aufrufe liefen ins Leere. Setzt jetzt wie "Reihenfolge und Auswahl zurücksetzen" nur noch die offene Maske vor, der Nutzer prüft und klickt selbst "Änderungen übernehmen"
+- Die Datenpunkt-Liste im Formular zeigte immer nur die zuletzt gespeicherte Reihenfolge. Da Symcon beim Übernehmen jedes Listenfeld der offenen Maske persistiert - unabhängig davon, ob der Nutzer gerade dieses Feld angefasst hat -, wurde eine Umsortierung von außen (z. B. Ziehen im Objektbaum der Konsole) beim nächsten Übernehmen automatisch wieder überschrieben. Die Maske zeigt jetzt beim Öffnen die tatsächliche Reihenfolge der Variablen im Objektbaum; nur eine Umsortierung in der offenen Maske selbst führt noch zu einer aktiven Neupositionierung. Betrifft Datenpunkt- und 1-Wire-Liste gleichermaßen (dieselbe Ursache)
+
 ## 1.32.0 — 2026-09-27
 
 - kW/W-Falle beim externen Stromzähler behoben (Dashboard-Fund, analog zum NRGDashboard-Forum-Fund somm): `PowerVariable` ist eine frei vom Nutzer gewählte IPS-Variable, deren Herkunftsprofil das Modul nicht kennt - lieferte sie Kilowatt statt Watt, wurden `Power_Total`, der gemessene COP und die Tages-Arbeitszahl um den Faktor 1000 falsch berechnet, ohne jede Fehlermeldung. Neues Feld „Einheit" (Watt/Kilowatt, Vorgabe Watt) direkt neben der Zähler-Auswahl; die Skalierung wirkt an beiden betroffenen Stellen (`updateTotalPower()` und die COP-Berechnung bei jeder Wertänderung). Vorgabe Watt ändert nichts am bisherigen Verhalten
