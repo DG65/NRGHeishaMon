@@ -160,14 +160,14 @@ class HeishaMon extends IPSModule
                     'Value'       => true,
                     'Caption'     => 'Online',
                     'IconActive'  => false,
-                    'Icon'        => '',
+                    'IconValue'   => '',
                     'Color'       => 65280
                 ],
                 [
                     'Value'       => false,
                     'Caption'     => 'Offline',
                     'IconActive'  => false,
-                    'Icon'        => '',
+                    'IconValue'   => '',
                     'Color'       => 16711680
                 ]
             ])
@@ -2530,7 +2530,7 @@ class HeishaMon extends IPSModule
                 'Value'       => $value,
                 'Caption'     => $this->Translate($optionCaption),
                 'IconActive'  => false,
-                'Icon'        => '',
+                'IconValue'   => '',
                 'Color'       => -1
             ];
         }
@@ -2586,7 +2586,7 @@ class HeishaMon extends IPSModule
                 'Value'       => $value,
                 'Caption'     => $this->Translate($optionCaption),
                 'IconActive'  => false,
-                'Icon'        => '',
+                'IconValue'   => '',
                 'Color'       => -1
             ];
         }
@@ -2686,14 +2686,14 @@ class HeishaMon extends IPSModule
                             'Value'       => true,
                             'Caption'     => $this->Translate($definition['on'] ?? 'On'),
                             'IconActive'  => false,
-                            'Icon'        => '',
+                            'IconValue'   => '',
                             'Color'       => -1
                         ],
                         [
                             'Value'       => false,
                             'Caption'     => $this->Translate($definition['off'] ?? 'Off'),
                             'IconActive'  => false,
-                            'Icon'        => '',
+                            'IconValue'   => '',
                             'Color'       => -1
                         ]
                     ])
@@ -2705,7 +2705,7 @@ class HeishaMon extends IPSModule
                     'Value'       => -1,
                     'Caption'     => $this->Translate('Unknown'),
                     'IconActive'  => false,
-                    'Icon'        => '',
+                    'IconValue'   => '',
                     'Color'       => -1
                 ]];
                 foreach ($definition['options'] as $value => $optionCaption) {
@@ -2713,7 +2713,7 @@ class HeishaMon extends IPSModule
                         'Value'       => $value,
                         'Caption'     => $this->Translate($optionCaption),
                         'IconActive'  => false,
-                        'Icon'        => '',
+                        'IconValue'   => '',
                         'Color'       => -1
                     ];
                 }
