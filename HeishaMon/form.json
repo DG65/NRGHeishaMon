@@ -32,6 +32,10 @@
                 },
                 {
                     "type": "Label",
+                    "caption": "🌡️ Heating automation: Optionally switches only the room heating on and off (and, with a dew point source, cooling) from the outside temperature means and your room temperatures. Hot water is never affected. Turn it on with the switch variable \"Heating automation\"; switching it off restores the heating."
+                },
+                {
+                    "type": "Label",
                     "caption": "💡 Energy saving check: Assesses the settings received from the unit (DHW target, reheat delta, backup heater enables, heating-off threshold, heating curve, pump duty) and the real cycling behavior (runtime per compressor start) against reference values from the documented HeishaMon example rulesets and the Panasonic service manual. Display only - nothing is changed automatically."
                 },
                 {
@@ -262,8 +266,14 @@
                                     "caption": "Unit",
                                     "width": "110px",
                                     "options": [
-                                        { "caption": "Watt", "value": "W" },
-                                        { "caption": "Kilowatt", "value": "kW" }
+                                        {
+                                            "caption": "Watt",
+                                            "value": "W"
+                                        },
+                                        {
+                                            "caption": "Kilowatt",
+                                            "value": "kW"
+                                        }
                                     ]
                                 },
                                 {
@@ -330,6 +340,263 @@
                                     }
                                 ]
                             }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "ExpansionPanel",
+            "caption": "🌡️ Heating automation (optional)",
+            "items": [
+                {
+                    "type": "Label",
+                    "caption": "Switches ONLY the room heating on and off - never the whole heat pump. The hot water keeps running in every state. The decision is based on the outside temperature (a short and a long mean, 24 h and 48 h by default, with hysteresis and a lock time) and optionally on your room temperatures. Frost protection always wins. Turn the switch variable \"Heating automation\" on to let it act; until then it only observes."
+                },
+                {
+                    "type": "Label",
+                    "name": "HeatAutoStatus",
+                    "caption": "HEATAUTOSTATUS"
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "CheckBox",
+                            "name": "HeatAutoEnabled",
+                            "caption": "Use heating automation"
+                        },
+                        {
+                            "type": "PopupButton",
+                            "caption": "How does the heating automation decide?",
+                            "width": "460px",
+                            "popup": {
+                                "caption": "How does the heating automation decide?",
+                                "items": [
+                                    {
+                                        "type": "Label",
+                                        "caption": "Every 15 minutes the module checks, in this order: (1) Frost protection: outside mean below the frost threshold, or any room below 10 °C, always means heating on - lock time ignored. (2) Outside mean below \"heating on\" threshold: heating on. (3) Both outside means above \"heating off\" threshold: heating off. The long mean makes switching off slow on purpose, one warm day does not shut the heating off. (4) In between: your rooms decide, if selected - too cold for the delay time: heating on; warm enough for the delay time: heating off; otherwise the state is kept (hysteresis). (5) After every change the new state is kept for the lock time (switching on again after only a quarter of it). Missing outside data means heating stays on. After each command the module reads the operating mode back and retries up to three times; the unit never acknowledges commands itself. When you switch the automation off, a disabled heating is turned on again."
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "Select",
+                    "name": "HeatAutoHeatMode",
+                    "caption": "Operating mode while heating",
+                    "width": "320px",
+                    "options": [
+                        {
+                            "caption": "Heating + hot water",
+                            "value": 4
+                        },
+                        {
+                            "caption": "Auto + hot water (cooling then decided by the unit, module cooling disabled)",
+                            "value": 6
+                        }
+                    ]
+                },
+                {
+                    "type": "SelectVariable",
+                    "name": "HeatAutoOutsideSource",
+                    "caption": "Outside temperature (empty = sensor of the heat pump)"
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "NumberSpinner",
+                            "name": "HeatAutoOnBelowC",
+                            "caption": "Heating on below (outside mean)",
+                            "suffix": " °C",
+                            "minimum": -10,
+                            "maximum": 30,
+                            "digits": 1
+                        },
+                        {
+                            "type": "NumberSpinner",
+                            "name": "HeatAutoOffAboveC",
+                            "caption": "Heating off above (both means)",
+                            "suffix": " °C",
+                            "minimum": -5,
+                            "maximum": 35,
+                            "digits": 1
+                        },
+                        {
+                            "type": "NumberSpinner",
+                            "name": "HeatAutoFrostC",
+                            "caption": "Frost protection below (mean)",
+                            "suffix": " °C",
+                            "minimum": -20,
+                            "maximum": 15,
+                            "digits": 1
+                        }
+                    ]
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "NumberSpinner",
+                            "name": "HeatAutoMeanShortHours",
+                            "caption": "Short mean (for switching on)",
+                            "suffix": " h",
+                            "minimum": 6,
+                            "maximum": 72
+                        },
+                        {
+                            "type": "NumberSpinner",
+                            "name": "HeatAutoMeanLongHours",
+                            "caption": "Long mean (for switching off)",
+                            "suffix": " h",
+                            "minimum": 12,
+                            "maximum": 168
+                        },
+                        {
+                            "type": "NumberSpinner",
+                            "name": "HeatAutoMinHoldHours",
+                            "caption": "Lock time after a switch",
+                            "suffix": " h",
+                            "minimum": 1,
+                            "maximum": 72
+                        }
+                    ]
+                },
+                {
+                    "type": "ExpansionPanel",
+                    "caption": "🏠 Room temperatures (optional)",
+                    "items": [
+                        {
+                            "type": "Label",
+                            "caption": "Rooms refine the decision between the two thresholds. Select wall sensors of the rooms you want to keep comfortable - not radiator thermostats right at the heater, smoke detectors or sensors that sometimes report 0. The mean over all valid rooms is used."
+                        },
+                        {
+                            "type": "List",
+                            "name": "HeatAutoRooms",
+                            "caption": "Room temperature variables",
+                            "rowCount": 6,
+                            "add": true,
+                            "delete": true,
+                            "columns": [
+                                {
+                                    "caption": "Room temperature variable",
+                                    "name": "Variable",
+                                    "width": "auto",
+                                    "add": 0,
+                                    "edit": {
+                                        "type": "SelectVariable"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "RowLayout",
+                            "items": [
+                                {
+                                    "type": "NumberSpinner",
+                                    "name": "HeatAutoRoomMinC",
+                                    "caption": "Minimum room temperature",
+                                    "suffix": " °C",
+                                    "minimum": 10,
+                                    "maximum": 30,
+                                    "digits": 1
+                                },
+                                {
+                                    "type": "NumberSpinner",
+                                    "name": "HeatAutoRoomHystK",
+                                    "caption": "Hysteresis",
+                                    "suffix": " K",
+                                    "minimum": 0.5,
+                                    "maximum": 5,
+                                    "digits": 1
+                                },
+                                {
+                                    "type": "NumberSpinner",
+                                    "name": "HeatAutoRoomDelayMin",
+                                    "caption": "Delay before acting",
+                                    "suffix": " min",
+                                    "minimum": 0,
+                                    "maximum": 720
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": "ExpansionPanel",
+                    "caption": "❄️ Cooling (optional, only in summer operation)",
+                    "items": [
+                        {
+                            "type": "Label",
+                            "caption": "Cooling uses the operating mode \"Cooling + hot water\". It is only allowed when the dew point is known and the lowest cooling target of the heating curve stays above the dew point plus the safety margin - otherwise water would condense on radiators and pipes. Provide either a dew point variable or a humidity variable of the room air."
+                        },
+                        {
+                            "type": "RowLayout",
+                            "items": [
+                                {
+                                    "type": "CheckBox",
+                                    "name": "HeatAutoCooling",
+                                    "caption": "Cooling by the automation"
+                                },
+                                {
+                                    "type": "PopupButton",
+                                    "caption": "Why is a dew point source required?",
+                                    "width": "460px",
+                                    "popup": {
+                                        "caption": "Why is a dew point source required?",
+                                        "items": [
+                                            {
+                                                "type": "Label",
+                                                "caption": "Cooled radiators and pipes below the dew point of the room air collect condensation water. The module therefore only starts cooling if a dew point (or humidity) source is selected and the lowest cooling target of your heating curve is at least the safety margin above the dew point. While cooling, it stops immediately as soon as the measured flow temperature falls below dew point plus margin. Without a source cooling stays off. Check the cooling curve of the heat pump yourself as well - the module does not change it."
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "RowLayout",
+                            "items": [
+                                {
+                                    "type": "NumberSpinner",
+                                    "name": "HeatAutoCoolRoomOnC",
+                                    "caption": "Cool above (room mean)",
+                                    "suffix": " °C",
+                                    "minimum": 20,
+                                    "maximum": 32,
+                                    "digits": 1
+                                },
+                                {
+                                    "type": "NumberSpinner",
+                                    "name": "HeatAutoCoolOutsideMinC",
+                                    "caption": "Only above (outside mean)",
+                                    "suffix": " °C",
+                                    "minimum": 10,
+                                    "maximum": 35,
+                                    "digits": 1
+                                },
+                                {
+                                    "type": "NumberSpinner",
+                                    "name": "HeatAutoDewMarginK",
+                                    "caption": "Safety margin to dew point",
+                                    "suffix": " K",
+                                    "minimum": 0.5,
+                                    "maximum": 10,
+                                    "digits": 1
+                                }
+                            ]
+                        },
+                        {
+                            "type": "SelectVariable",
+                            "name": "HeatAutoDewVariable",
+                            "caption": "Dew point of the room air (°C)"
+                        },
+                        {
+                            "type": "SelectVariable",
+                            "name": "HeatAutoHumidityVariable",
+                            "caption": "or: relative humidity of the room air (%)"
                         }
                     ]
                 }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../libs/HeishaMonTopics.php';
+require_once __DIR__ . '/../libs/HeatingAutomation.php';
 
 /**
  * HeishaMon
@@ -51,6 +52,11 @@ class HeishaMon extends IPSModule
         ],
         '1.34.0' => [
             'Change: a meter MeterHub already has assigned to function "heat pump" is now used automatically for the measured COP - no click needed, and the module keeps following later changes to that assignment instead of a one-time snapshot. A status line in the "External energy meter" panel shows what is actually in effect; your own meter selection (now in a collapsed "Use your own meter instead" section) always takes priority over MeterHub.'
+        ],
+        '1.35.0' => [
+            'New: heating automation (optional, panel "Heating automation"). Switches only the room heating on and off - never the whole heat pump, hot water keeps running - from the outside temperature (short and long mean, hysteresis, lock time) and optionally your room temperatures. Frost protection always wins, missing data keeps the heating on. Off by default; it only acts once you switch the new variable "Heating automation" on, and switching it off restores the heating.',
+            'New: optional cooling in the automation, only with a dew point (or humidity) source: it starts only if the lowest cooling target of the heating curve stays above the dew point plus a safety margin and stops at once when the flow temperature falls below it.',
+            'New: after every operating mode command the module reads the mode back and retries up to three times - the unit never acknowledges commands itself.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -147,6 +153,9 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeInteger('LastIntegration', 0);
 
         $this->RegisterTimer('COPUpdate', 0, 'HEISHA_UpdateCOPCalculation($_IPS[\'TARGET\']);');
+
+        //Heizungs-Automatik (nur Heizbetrieb ein/aus, optional Kuehlen mit Taupunkt-Schutz)
+        $this->registerHeatingAutomation();
 
         $this->RegisterVariableBoolean('Reachable', $this->Translate('Reachable'), $this->reachablePresentation(), 0);
     }
@@ -266,6 +275,12 @@ class HeishaMon extends IPSModule
         //sichtbar machen", 21.09.2026, EMS-Fund 29.09.2026): frisch berechnet bei jedem
         //Formular-Aufbau, kein einmaliges Uebernehmen-in-Property mehr - das Modul folgt damit
         //spaeteren Aenderungen der MeterHub-Zuordnung, statt eine veraltete Kopie zu behalten.
+        [$heatAutoLine, $heatAutoColor] = $this->heatAutoStatusLine();
+        $this->patchFormElement($form['elements'], 'HeatAutoStatus', function (&$element) use ($heatAutoLine, $heatAutoColor) {
+            $element['caption'] = $heatAutoLine;
+            $element['color'] = $heatAutoColor;
+        });
+
         [$statusLine, $statusColor] = $this->meterHubLinkStatusLine();
         $this->patchFormElement($form['elements'], 'MeterHubLinkStatus', function (&$element) use ($statusLine, $statusColor) {
             $element['caption'] = $statusLine;
@@ -711,6 +726,8 @@ class HeishaMon extends IPSModule
         //Neustart-Watchdog nur mit aktivierter Option und eingetragener Platinen-IP
         $watchdogActive = $this->ReadPropertyBoolean('RebootWatchdog') && trim((string) $this->ReadPropertyString('DeviceIP')) != '';
         $this->SetTimerInterval('RebootWatchdog', $watchdogActive ? 60000 : 0);
+
+        $this->maintainHeatingAutomation();
 
         $this->SendDebug('VariableList', (string) $this->ReadPropertyString('VariableList'), 0);
 
@@ -2175,6 +2192,19 @@ class HeishaMon extends IPSModule
             $this->SendSetCommand('SetSmartGridMode', strval(intval($Value)));
             return;
         }
+        if ($Ident === 'HeatAuto_Active') {
+            $this->SetValue($Ident, boolval($Value));
+            if (boolval($Value)) {
+                $this->WriteAttributeString('HeatAutoState', '');
+                $this->WriteAttributeInteger('HeatAutoTries', 0);
+                $this->WriteAttributeBoolean('HeatAutoFault', false);
+                $this->HeatingAutomationTick();
+            } else {
+                $this->heatAutoRestore();
+                $this->heatAutoPublish('', 'inactive', [], []);
+            }
+            return;
+        }
         if ($Ident === 'GpioRelay1' || $Ident === 'GpioRelay2') {
             $this->SetValue($Ident, boolval($Value));
             $baseTopic = $this->ReadPropertyString('MQTTTopic');
@@ -2344,6 +2374,712 @@ class HeishaMon extends IPSModule
         'emergencyHeater' => ['ident' => 'Force_Heater_State', 'command' => 'SetForceHeater',  'min' => 0,  'max' => 1],
         'dhwTargetC'      => ['ident' => 'DHW_Target_Temp',    'command' => 'SetDHWTemp',      'min' => 40, 'max' => 75]
     ];
+
+    // ---------------------------------------------------------------------------------------
+    // Heizungs-Automatik: schaltet NUR den Raumbetrieb (Heizen+WW / Kuehlen+WW / nur WW) ueber
+    // SetOperationMode, nie die ganze Waermepumpe. Entscheidungslogik: libs/HeatingAutomation.php
+    // ---------------------------------------------------------------------------------------
+
+    private const HEATAUTO_TICK_MS = 900000;
+    private const HEATAUTO_RING_KEEP_HOURS = 200;
+    private const HEATAUTO_MAX_AGE_SECONDS = 10800;
+    private const HEATAUTO_MAX_TRIES = 3;
+    private const HEATAUTO_MODE_OFF = 3;
+    private const HEATAUTO_MODE_COOLING = 5;
+
+    /** API-Feld => [Property, Typ, Minimum, Maximum]; gemeinsame Quelle fuer Get-/SetHeatingAutomation. */
+    private const HEATAUTO_CONFIG = [
+        'heatMode'                 => ['HeatAutoHeatMode', 'int', 4, 6],
+        'outsideSourceVariableID'  => ['HeatAutoOutsideSource', 'int', 0, null],
+        'onBelowC'                 => ['HeatAutoOnBelowC', 'float', -10, 30],
+        'offAboveC'                => ['HeatAutoOffAboveC', 'float', -5, 35],
+        'frostC'                   => ['HeatAutoFrostC', 'float', -20, 15],
+        'meanShortHours'           => ['HeatAutoMeanShortHours', 'int', 6, 72],
+        'meanLongHours'            => ['HeatAutoMeanLongHours', 'int', 12, 168],
+        'minHoldHours'             => ['HeatAutoMinHoldHours', 'int', 1, 72],
+        'roomMinC'                 => ['HeatAutoRoomMinC', 'float', 10, 30],
+        'roomHystK'                => ['HeatAutoRoomHystK', 'float', 0.5, 5],
+        'roomDelayMin'             => ['HeatAutoRoomDelayMin', 'int', 0, 720],
+        'coolEnabled'              => ['HeatAutoCooling', 'bool', null, null],
+        'coolRoomOnC'              => ['HeatAutoCoolRoomOnC', 'float', 20, 32],
+        'coolOutsideMinC'          => ['HeatAutoCoolOutsideMinC', 'float', 10, 35],
+        'dewPointVariableID'       => ['HeatAutoDewVariable', 'int', 0, null],
+        'humidityVariableID'       => ['HeatAutoHumidityVariable', 'int', 0, null],
+        'dewMarginK'               => ['HeatAutoDewMarginK', 'float', 0.5, 10]
+    ];
+
+    private function registerHeatingAutomation()
+    {
+        $this->RegisterPropertyBoolean('HeatAutoEnabled', false);
+        $this->RegisterPropertyInteger('HeatAutoHeatMode', 4);
+        $this->RegisterPropertyInteger('HeatAutoOutsideSource', 0);
+        $this->RegisterPropertyFloat('HeatAutoOnBelowC', 12);
+        $this->RegisterPropertyFloat('HeatAutoOffAboveC', 16);
+        $this->RegisterPropertyFloat('HeatAutoFrostC', 5);
+        $this->RegisterPropertyInteger('HeatAutoMeanShortHours', 24);
+        $this->RegisterPropertyInteger('HeatAutoMeanLongHours', 48);
+        $this->RegisterPropertyInteger('HeatAutoMinHoldHours', 12);
+        $this->RegisterPropertyString('HeatAutoRooms', '[]');
+        $this->RegisterPropertyFloat('HeatAutoRoomMinC', 19.5);
+        $this->RegisterPropertyFloat('HeatAutoRoomHystK', 1.5);
+        $this->RegisterPropertyInteger('HeatAutoRoomDelayMin', 120);
+        $this->RegisterPropertyBoolean('HeatAutoCooling', false);
+        $this->RegisterPropertyFloat('HeatAutoCoolRoomOnC', 25);
+        $this->RegisterPropertyFloat('HeatAutoCoolOutsideMinC', 20);
+        $this->RegisterPropertyInteger('HeatAutoDewVariable', 0);
+        $this->RegisterPropertyInteger('HeatAutoHumidityVariable', 0);
+        $this->RegisterPropertyFloat('HeatAutoDewMarginK', 2);
+
+        //Zustand ueberlebt Neustarts: Aussentemperatur-Stuetzstellen, letzter Zustand, Sperrzeit-
+        //Bezug, Zaehler fuer die Raumverzoegerung, Sende-Versuche
+        $this->RegisterAttributeString('HeatAutoRing', '[]');
+        $this->RegisterAttributeInteger('HeatAutoRingSource', -1);
+        $this->RegisterAttributeString('HeatAutoState', '');
+        $this->RegisterAttributeInteger('HeatAutoSince', 0);
+        $this->RegisterAttributeInteger('HeatAutoColdSince', 0);
+        $this->RegisterAttributeInteger('HeatAutoWarmSince', 0);
+        $this->RegisterAttributeInteger('HeatAutoHotSince', 0);
+        $this->RegisterAttributeInteger('HeatAutoTries', 0);
+        $this->RegisterAttributeInteger('HeatAutoLastSend', 0);
+        $this->RegisterAttributeBoolean('HeatAutoFault', false);
+        $this->RegisterAttributeString('HeatAutoLast', '{}');
+        $this->RegisterTimer('HeatAutoTick', 0, 'HEISHA_HeatingAutomationTick($_IPS[\'TARGET\']);');
+        $this->RegisterTimer('HeatAutoVerify', 0, 'HEISHA_HeatingAutomationVerify($_IPS[\'TARGET\']);');
+    }
+
+    /** Variablen/Timer je nach Option anlegen bzw. entfernen; ein abgeschaltetes Modul stellt den Heizbetrieb wieder her. */
+    private function maintainHeatingAutomation()
+    {
+        $enabled = $this->ReadPropertyBoolean('HeatAutoEnabled');
+        $stateVariableID = @$this->GetIDForIdent('HeatAuto_State');
+
+        if (!$enabled) {
+            if ($stateVariableID !== false || (string) $this->ReadAttributeString('HeatAutoState') !== '') {
+                $this->heatAutoRestore();
+            }
+            $this->SetTimerInterval('HeatAutoTick', 0);
+            $this->SetTimerInterval('HeatAutoVerify', 0);
+            $this->MaintainVariable('HeatAuto_Active', $this->Translate('Heating automation'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 270, false);
+            $this->MaintainVariable('HeatAuto_State', $this->Translate('Heating automation: state'), VARIABLETYPE_INTEGER, [], 271, false);
+            $this->MaintainVariable('HeatAuto_Reason', $this->Translate('Heating automation: reason'), VARIABLETYPE_STRING, [], 272, false);
+            return;
+        }
+
+        $this->MaintainVariable('HeatAuto_Active', $this->Translate('Heating automation'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 270, true);
+        $this->EnableAction('HeatAuto_Active');
+        $options = [];
+        foreach ([0 => 'Heating off (hot water only)', 1 => 'Heating', 2 => 'Cooling'] as $value => $caption) {
+            $options[] = ['Value' => $value, 'Caption' => $this->Translate($caption), 'IconActive' => false, 'IconValue' => '', 'Color' => -1];
+        }
+        $this->MaintainVariable('HeatAuto_State', $this->Translate('Heating automation: state'), VARIABLETYPE_INTEGER, [
+            'PRESENTATION' => VARIABLE_PRESENTATION_ENUMERATION,
+            'OPTIONS'      => json_encode($options)
+        ], 271, true);
+        $this->MaintainVariable('HeatAuto_Reason', $this->Translate('Heating automation: reason'), VARIABLETYPE_STRING, [
+            'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION
+        ], 272, true);
+        $this->SetTimerInterval('HeatAutoTick', self::HEATAUTO_TICK_MS);
+        //Wurde die Aussentemperatur-Quelle geaendert, taugen die alten Stuetzstellen nicht mehr
+        if ((int) $this->ReadAttributeInteger('HeatAutoRingSource') !== $this->heatAutoOutsideID()) {
+            $this->WriteAttributeString('HeatAutoRing', '[]');
+            $this->WriteAttributeInteger('HeatAutoRingSource', $this->heatAutoOutsideID());
+        }
+    }
+
+    private function heatAutoIsActive(): bool
+    {
+        $id = @$this->GetIDForIdent('HeatAuto_Active');
+        return $id !== false && (bool) GetValue($id);
+    }
+
+    private function heatAutoConfig(): array
+    {
+        return [
+            'onBelowC'        => (float) $this->ReadPropertyFloat('HeatAutoOnBelowC'),
+            'offAboveC'       => (float) $this->ReadPropertyFloat('HeatAutoOffAboveC'),
+            'frostC'          => (float) $this->ReadPropertyFloat('HeatAutoFrostC'),
+            'minHoldHours'    => (float) $this->ReadPropertyInteger('HeatAutoMinHoldHours'),
+            'roomMinC'        => (float) $this->ReadPropertyFloat('HeatAutoRoomMinC'),
+            'roomHystK'       => (float) $this->ReadPropertyFloat('HeatAutoRoomHystK'),
+            'roomDelayMin'    => (int) $this->ReadPropertyInteger('HeatAutoRoomDelayMin'),
+            //Kuehlen nur im Modus "Heizen+WW": Auto+WW entscheidet die Anlage selbst
+            'coolEnabled'     => $this->ReadPropertyBoolean('HeatAutoCooling') && (int) $this->ReadPropertyInteger('HeatAutoHeatMode') === 4,
+            'coolRoomOnC'     => (float) $this->ReadPropertyFloat('HeatAutoCoolRoomOnC'),
+            'coolOutsideMinC' => (float) $this->ReadPropertyFloat('HeatAutoCoolOutsideMinC')
+        ];
+    }
+
+    private function heatAutoModeFor(string $state): int
+    {
+        if ($state === 'cooling') {
+            return self::HEATAUTO_MODE_COOLING;
+        }
+        if ($state === 'off') {
+            return self::HEATAUTO_MODE_OFF;
+        }
+        return (int) $this->ReadPropertyInteger('HeatAutoHeatMode');
+    }
+
+    /** Aktuell gemeldete Betriebsart der Anlage (Operating_Mode_State) oder null, wenn unbekannt. */
+    private function heatAutoActualMode(): ?int
+    {
+        $id = $this->idForIdent('Operating_Mode_State');
+        if ($id === 0) {
+            return null;
+        }
+        $value = (int) GetValue($id);
+        return $value >= 0 ? $value : null;
+    }
+
+    private function heatAutoStateFromMode(?int $mode): string
+    {
+        if ($mode === self::HEATAUTO_MODE_OFF) {
+            return 'off';
+        }
+        if ($mode === self::HEATAUTO_MODE_COOLING || $mode === 1) {
+            return 'cooling';
+        }
+        return 'heating';
+    }
+
+    private function heatAutoReadNumber(int $variableID, float $min, float $max): ?float
+    {
+        if ($variableID <= 0 || !@IPS_VariableExists($variableID)) {
+            return null;
+        }
+        if (time() - (int) IPS_GetVariable($variableID)['VariableUpdated'] > self::HEATAUTO_MAX_AGE_SECONDS) {
+            return null;
+        }
+        $raw = GetValue($variableID);
+        if (!is_numeric($raw)) {
+            return null;
+        }
+        $value = (float) $raw;
+        return ($value < $min || $value > $max) ? null : $value;
+    }
+
+    private function heatAutoOutsideID(): int
+    {
+        $own = (int) $this->ReadPropertyInteger('HeatAutoOutsideSource');
+        return $own > 0 ? $own : $this->idForIdent('Outside_Temp');
+    }
+
+    private function heatAutoOutside(): ?float
+    {
+        return $this->heatAutoReadNumber($this->heatAutoOutsideID(), -50, 60);
+    }
+
+    /** @return array{0: ?float, 1: ?float, 2: int} Raum-Mittel, kaeltester Raum, Anzahl gueltiger Raeume */
+    private function heatAutoRooms(): array
+    {
+        $rows = json_decode((string) $this->ReadPropertyString('HeatAutoRooms'), true);
+        $values = [];
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            $value = $this->heatAutoReadNumber((int) ($row['Variable'] ?? 0), 5, 45);
+            if ($value !== null) {
+                $values[] = $value;
+            }
+        }
+        if ($values === []) {
+            return [null, null, 0];
+        }
+        return [array_sum($values) / count($values), min($values), count($values)];
+    }
+
+    /** Beim ersten Start die Stuetzstellen aus dem Archiv vorbefuellen (falls die Quelle geloggt wird). */
+    private function heatAutoSeedFromArchive(int $now): array
+    {
+        $variableID = $this->heatAutoOutsideID();
+        $archives = @IPS_GetInstanceListByModuleID('{43192F0B-135B-4CE7-A0A7-1475603F3060}');
+        if ($variableID <= 0 || !is_array($archives) || $archives === [] || !function_exists('AC_GetAggregatedValues')) {
+            return [];
+        }
+        try {
+            if (!AC_GetLoggingStatus($archives[0], $variableID)) {
+                return [];
+            }
+            $from = $now - (int) ($this->ReadPropertyInteger('HeatAutoMeanLongHours') * 3600);
+            $rows = AC_GetAggregatedValues($archives[0], $variableID, 0, $from, $now, 0);
+        } catch (Throwable $e) {
+            return [];
+        }
+        $samples = [];
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            if (isset($row['TimeStamp'], $row['Avg']) && is_numeric($row['Avg'])) {
+                $samples[] = [(int) $row['TimeStamp'] + 1800, round((float) $row['Avg'], 2)];
+            }
+        }
+        return HeishaHeatingAutomation::trim($samples, $now, self::HEATAUTO_RING_KEEP_HOURS);
+    }
+
+    private function heatAutoSample(int $now)
+    {
+        $ring = json_decode((string) $this->ReadAttributeString('HeatAutoRing'), true);
+        $ring = is_array($ring) ? $ring : [];
+        if ($ring === []) {
+            $ring = $this->heatAutoSeedFromArchive($now);
+        }
+        $value = $this->heatAutoOutside();
+        $last = $ring === [] ? 0 : (int) end($ring)[0];
+        if ($value !== null && $now - $last >= 300) {
+            $ring[] = [$now, round($value, 2)];
+        }
+        $ring = HeishaHeatingAutomation::trim($ring, $now, self::HEATAUTO_RING_KEEP_HOURS);
+        $this->WriteAttributeString('HeatAutoRing', json_encode($ring));
+    }
+
+    /** Taupunkt der Raumluft und Freigabe: tiefster Kuehl-Sollwert muss ueber Taupunkt + Sicherheitsabstand liegen. */
+    private function heatAutoDew(?float $roomMean, string $state): array
+    {
+        $dew = $this->heatAutoReadNumber((int) $this->ReadPropertyInteger('HeatAutoDewVariable'), -40, 40);
+        if ($dew === null && $roomMean !== null) {
+            $humidity = $this->heatAutoReadNumber((int) $this->ReadPropertyInteger('HeatAutoHumidityVariable'), 1, 100);
+            if ($humidity !== null) {
+                $dew = HeishaHeatingAutomation::dewPoint($roomMean, $humidity);
+            }
+        }
+        if ($dew === null) {
+            return ['dewC' => null, 'ok' => null];
+        }
+        $lowest = null;
+        foreach (['z1' => 'Z1', 'z2' => 'Z2'] as $zone => $prefix) {
+            if (!$this->isCurveZoneActive($zone)) {
+                continue;
+            }
+            $curve = $this->readCurve($prefix, 'Cool');
+            if ($curve !== null) {
+                $zoneLow = min($curve['targetHighC'], $curve['targetLowC']);
+                $lowest = $lowest === null ? $zoneLow : min($lowest, $zoneLow);
+            }
+        }
+        if ($lowest === null) {
+            return ['dewC' => $dew, 'ok' => null];
+        }
+        $margin = (float) $this->ReadPropertyFloat('HeatAutoDewMarginK');
+        $ok = $lowest >= $dew + $margin;
+        if ($ok && $state === 'cooling') {
+            $outletID = $this->idForIdent('Main_Outlet_Temp');
+            if ($outletID !== 0 && (float) GetValue($outletID) < $dew + $margin) {
+                $ok = false;
+            }
+        }
+        return ['dewC' => $dew, 'ok' => $ok];
+    }
+
+    private static function heatAutoMinutes(int $since, int $now): int
+    {
+        return $since > 0 ? intdiv(max(0, $now - $since), 60) : 0;
+    }
+
+    public function HeatingAutomationTick()
+    {
+        if (!$this->ReadPropertyBoolean('HeatAutoEnabled')) {
+            return;
+        }
+        $now = time();
+        $this->heatAutoSample($now);
+        if (!$this->heatAutoIsActive()) {
+            $this->heatAutoPublish('', 'inactive', [], []);
+            return;
+        }
+
+        $cfg = $this->heatAutoConfig();
+        $state = (string) $this->ReadAttributeString('HeatAutoState');
+        if (!in_array($state, HeishaHeatingAutomation::STATES, true)) {
+            //Erste Auswertung: aktuellen Betriebsmodus uebernehmen, Sperrzeit gilt noch nicht
+            $state = $this->heatAutoStateFromMode($this->heatAutoActualMode());
+            $this->WriteAttributeString('HeatAutoState', $state);
+            $this->WriteAttributeInteger('HeatAutoSince', $now - (int) ($cfg['minHoldHours'] * 3600));
+        }
+        $since = (int) $this->ReadAttributeInteger('HeatAutoSince');
+
+        $ring = json_decode((string) $this->ReadAttributeString('HeatAutoRing'), true);
+        $ring = is_array($ring) ? $ring : [];
+        $short = HeishaHeatingAutomation::mean($ring, $now, (float) $this->ReadPropertyInteger('HeatAutoMeanShortHours'));
+        $long = HeishaHeatingAutomation::mean($ring, $now, (float) $this->ReadPropertyInteger('HeatAutoMeanLongHours'));
+
+        [$roomMean, $roomMin, $roomCount] = $this->heatAutoRooms();
+        $coldSince = $this->heatAutoCounter('HeatAutoColdSince', $roomMean !== null && $roomMean < $cfg['roomMinC'], $now);
+        $warmSince = $this->heatAutoCounter('HeatAutoWarmSince', $roomMean !== null && $roomMean >= $cfg['roomMinC'] + $cfg['roomHystK'], $now);
+        $hotSince = $this->heatAutoCounter('HeatAutoHotSince', $roomMean !== null && $roomMean > $cfg['coolRoomOnC'], $now);
+        $dew = $cfg['coolEnabled'] ? $this->heatAutoDew($roomMean, $state) : ['dewC' => null, 'ok' => null];
+
+        $decision = HeishaHeatingAutomation::decide([
+            'state'        => $state,
+            'hoursInState' => max(0, $now - $since) / 3600,
+            'outsideNowC'  => $this->heatAutoOutside(),
+            'meanShortC'   => $short['mean'],
+            'meanLongC'    => $long['mean'],
+            'coverShort'   => $short['coverage'],
+            'coverLong'    => $long['coverage'],
+            'roomMeanC'    => $roomMean,
+            'roomMinC'     => $roomMin,
+            'roomColdMin'  => self::heatAutoMinutes($coldSince, $now),
+            'roomWarmMin'  => self::heatAutoMinutes($warmSince, $now),
+            'roomHotMin'   => self::heatAutoMinutes($hotSince, $now),
+            'dewOk'        => $dew['ok'],
+            'cfg'          => $cfg
+        ]);
+
+        //Kuehlen gewuenscht, aber nicht taupunktsicher belegbar: im Status sichtbar machen
+        if ($cfg['coolEnabled'] && $decision['state'] === 'off' && $dew['ok'] !== true && $roomMean !== null
+            && $roomMean > $cfg['coolRoomOnC'] && self::heatAutoMinutes($hotSince, $now) >= $cfg['roomDelayMin']) {
+            $decision['reason'] = 'cool_blocked';
+        }
+
+        if ($decision['state'] !== $state) {
+            $this->WriteAttributeString('HeatAutoState', $decision['state']);
+            $this->WriteAttributeInteger('HeatAutoSince', $now);
+            $this->WriteAttributeInteger('HeatAutoTries', 0);
+            $this->WriteAttributeInteger('HeatAutoLastSend', 0);
+            $this->WriteAttributeBoolean('HeatAutoFault', false);
+            $this->LogMessage(sprintf('Heating automation: %s -> %s (%s)', $state, $decision['state'], $decision['reason']), KL_MESSAGE);
+            $since = $now;
+        }
+        $this->heatAutoEnforce($decision['state'], $now);
+        $this->heatAutoPublish($decision['state'], $decision['reason'], $decision['params'], [
+            'outsideNowC' => $this->heatAutoOutside(),
+            'meanShortC'  => $short['mean'],
+            'meanLongC'   => $long['mean'],
+            'coverShort'  => $short['coverage'],
+            'coverLong'   => $long['coverage'],
+            'roomMeanC'   => $roomMean,
+            'roomMinC'    => $roomMin,
+            'roomCount'   => $roomCount,
+            'dewPointC'   => $dew['dewC'],
+            'dewOk'       => $dew['ok'],
+            'since'       => $since
+        ]);
+    }
+
+    /** Beginn eines Zustands (z.B. "Raum zu kalt") als Zeitstempel fuehren; 0 = Bedingung nicht erfuellt. */
+    private function heatAutoCounter(string $attribute, bool $condition, int $now): int
+    {
+        if (!$condition) {
+            $this->WriteAttributeInteger($attribute, 0);
+            return 0;
+        }
+        $since = (int) $this->ReadAttributeInteger($attribute);
+        if ($since === 0) {
+            $since = $now;
+            $this->WriteAttributeInteger($attribute, $since);
+        }
+        return $since;
+    }
+
+    /** Folgekontrolle ~45 s nach dem Senden: uebernimmt die Anlage die Betriebsart? (Befehle werden nie quittiert.) */
+    public function HeatingAutomationVerify()
+    {
+        $this->SetTimerInterval('HeatAutoVerify', 0);
+        if (!$this->ReadPropertyBoolean('HeatAutoEnabled') || !$this->heatAutoIsActive()) {
+            return;
+        }
+        $state = (string) $this->ReadAttributeString('HeatAutoState');
+        if (!in_array($state, HeishaHeatingAutomation::STATES, true)) {
+            return;
+        }
+        $this->heatAutoEnforce($state, time());
+        $last = json_decode((string) $this->ReadAttributeString('HeatAutoLast'), true);
+        $this->heatAutoPublish($state, (string) ($last['reasonCode'] ?? 'keep_' . $state), (array) ($last['params'] ?? []), (array) ($last['values'] ?? []));
+    }
+
+    private function heatAutoEnforce(string $state, int $now)
+    {
+        $desired = $this->heatAutoModeFor($state);
+        $actual = $this->heatAutoActualMode();
+        if ($actual === $desired) {
+            $this->WriteAttributeInteger('HeatAutoTries', 0);
+            $this->WriteAttributeBoolean('HeatAutoFault', false);
+            return;
+        }
+        $reachableID = $this->idForIdent('Reachable');
+        if ((string) $this->ReadPropertyString('MQTTTopic') === '' || !$this->HasActiveParent()
+            || ($reachableID !== 0 && !GetValue($reachableID))) {
+            return;
+        }
+        $lastSend = (int) $this->ReadAttributeInteger('HeatAutoLastSend');
+        $tries = (int) $this->ReadAttributeInteger('HeatAutoTries');
+        if ($tries >= self::HEATAUTO_MAX_TRIES) {
+            $this->WriteAttributeBoolean('HeatAutoFault', true);
+            //Nach zwei Stunden einen neuen Versuchszyklus erlauben (Anlage war z.B. nur kurz unerreichbar)
+            if ($now - $lastSend >= 7200) {
+                $this->WriteAttributeInteger('HeatAutoTries', 0);
+            }
+            return;
+        }
+        if ($now - $lastSend < 30) {
+            return;
+        }
+        if ($actual === null && $lastSend >= (int) $this->ReadAttributeInteger('HeatAutoSince') && $lastSend > 0) {
+            //Betriebsart unbekannt (nie empfangen): nicht pruefbar, daher je Zustand nur einmal senden
+            return;
+        }
+        $this->SendSetCommand('SetOperationMode', (string) $desired);
+        $this->WriteAttributeInteger('HeatAutoLastSend', $now);
+        $this->WriteAttributeInteger('HeatAutoTries', $tries + 1);
+        $this->SendDebug('HeatAuto', 'SetOperationMode ' . $desired . ' (state ' . $state . ', try ' . ($tries + 1) . ')', 0);
+        $this->SetTimerInterval('HeatAutoVerify', 45000);
+    }
+
+    /** Beim Ausschalten der Automatik: war der Heizbetrieb abgeschaltet, wird er sicherheitshalber wiederhergestellt. */
+    private function heatAutoRestore()
+    {
+        $state = (string) $this->ReadAttributeString('HeatAutoState');
+        $this->WriteAttributeString('HeatAutoState', '');
+        $this->WriteAttributeInteger('HeatAutoTries', 0);
+        $this->WriteAttributeBoolean('HeatAutoFault', false);
+        $this->SetTimerInterval('HeatAutoVerify', 0);
+        if (($state === 'off' || $state === 'cooling') && (string) $this->ReadPropertyString('MQTTTopic') !== '' && $this->HasActiveParent()) {
+            $this->SendSetCommand('SetOperationMode', (string) $this->heatAutoModeFor('heating'));
+            $this->LogMessage('Heating automation switched off: heating mode restored', KL_MESSAGE);
+        }
+    }
+
+    private function heatAutoPublish(string $state, string $reason, array $params, array $values)
+    {
+        $fault = (bool) $this->ReadAttributeBoolean('HeatAutoFault');
+        $text = $this->heatAutoReasonText($fault ? 'fault' : $reason, $params);
+        $this->WriteAttributeString('HeatAutoLast', json_encode([
+            'reasonCode' => $reason,
+            'params'     => $params,
+            'values'     => $values,
+            'text'       => $text,
+            'at'         => time()
+        ]));
+        $stateID = @$this->GetIDForIdent('HeatAuto_State');
+        if ($stateID !== false && $state !== '') {
+            $this->SetValue('HeatAuto_State', ['off' => 0, 'heating' => 1, 'cooling' => 2][$state]);
+        }
+        $reasonID = @$this->GetIDForIdent('HeatAuto_Reason');
+        if ($reasonID !== false && GetValue($reasonID) !== $text) {
+            $this->SetValue('HeatAuto_Reason', $text);
+        }
+    }
+
+    private function heatAutoNumber($value): string
+    {
+        $separator = $this->Translate('decimal-separator');
+        return number_format((float) $value, 1, strlen($separator) === 1 ? $separator : '.', '');
+    }
+
+    private function heatAutoReasonText(string $code, array $params): string
+    {
+        $n = fn ($key) => $this->heatAutoNumber($params[$key] ?? 0);
+        $shortHours = (int) $this->ReadPropertyInteger('HeatAutoMeanShortHours');
+        $longHours = (int) $this->ReadPropertyInteger('HeatAutoMeanLongHours');
+        switch ($code) {
+            case 'inactive':
+                return $this->Translate('Automation is switched off - the operating mode is left unchanged.');
+            case 'fault':
+                return $this->Translate('The heat pump does not take over the operating mode - please check the unit and the MQTT connection.');
+            case 'no_data':
+                return $this->Translate('No current outside temperature available - heating stays on for safety.');
+            case 'frost':
+                return $this->Translate('Frost protection active - heating on.');
+            case 'cold':
+                return sprintf($this->Translate('Outside mean %s °C (%d h) is below the switch-on threshold %s °C - heating on.'), $n('meanShort'), $shortHours, $n('on'));
+            case 'warm':
+                return sprintf($this->Translate('Outside means %s °C (%d h) and %s °C (%d h) are above the switch-off threshold %s °C - heating off.'), $n('meanShort'), $shortHours, $n('meanLong'), $longHours, $n('off'));
+            case 'room_cold':
+                return sprintf($this->Translate('Rooms too cold (mean %s °C, minimum %s °C) - heating on.'), $n('room'), $n('roomMin'));
+            case 'room_warm':
+                return sprintf($this->Translate('Rooms warm enough (mean %s °C, minimum %s °C) - heating off.'), $n('room'), $n('roomMin'));
+            case 'keep_heating':
+                return sprintf($this->Translate('Outside mean %s °C is between the thresholds - heating stays on.'), $n('meanShort'));
+            case 'keep_off':
+                return sprintf($this->Translate('Outside mean %s °C is between the thresholds - heating stays off.'), $n('meanShort'));
+            case 'keep_cooling':
+            case 'cooling':
+                return $this->Translate('Cooling continues.');
+            case 'cool_start':
+                return sprintf($this->Translate('Rooms too warm (mean %s °C, limit %s °C), dew point safe - cooling on.'), $n('room'), $n('coolRoom'));
+            case 'cool_end':
+                return $this->Translate('Cooling ended.');
+            case 'cool_blocked':
+                return $this->Translate('Rooms are too warm, but cooling is not allowed: dew point or cooling curve unknown, or the cooling target would fall below the dew point.');
+            case 'dew_stop':
+                return $this->Translate('Cooling stopped: the flow temperature would fall below the dew point.');
+            case 'hold':
+                $names = ['heating' => 'heating', 'off' => 'heating off', 'cooling' => 'cooling'];
+                return sprintf($this->Translate('Lock time active: switching to "%s" is possible in %s h.'), $this->Translate($names[$params['wanted'] ?? 'heating'] ?? 'heating'), $n('remaining'));
+        }
+        return $code;
+    }
+
+    /** Zeile fuer das Konfigurationsformular. */
+    private function heatAutoStatusLine(): array
+    {
+        if (!$this->ReadPropertyBoolean('HeatAutoEnabled')) {
+            return [$this->Translate('ℹ️ Heating automation is not used. Enable it below.'), -1];
+        }
+        $last = json_decode((string) $this->ReadAttributeString('HeatAutoLast'), true);
+        if (!is_array($last) || !isset($last['text'])) {
+            return [$this->Translate('ℹ️ Heating automation enabled, waiting for the first evaluation (every 15 minutes).'), -1];
+        }
+        $icon = $this->ReadAttributeBoolean('HeatAutoFault') ? '⚠️ ' : '✅ ';
+        return [$icon . (string) $last['text'], $this->ReadAttributeBoolean('HeatAutoFault') ? 0xC0392B : 0x2E8B3D];
+    }
+
+    /**
+     * Zustand und Einstellungen der Heizungs-Automatik (Vertrag heatpump, ab contractVersion 1.15).
+     * Immer vorhanden; 'enabled' sagt, ob die Funktion in dieser Instanz verwendet wird.
+     */
+    public function GetHeatingAutomation(): array
+    {
+        $config = [];
+        foreach (self::HEATAUTO_CONFIG as $field => [$property, $type]) {
+            switch ($type) {
+                case 'bool':
+                    $config[$field] = (bool) $this->ReadPropertyBoolean($property);
+                    break;
+                case 'float':
+                    $config[$field] = (float) $this->ReadPropertyFloat($property);
+                    break;
+                default:
+                    $config[$field] = (int) $this->ReadPropertyInteger($property);
+            }
+        }
+        $rooms = [];
+        $rows = json_decode((string) $this->ReadPropertyString('HeatAutoRooms'), true);
+        foreach (is_array($rows) ? $rows : [] as $row) {
+            if ((int) ($row['Variable'] ?? 0) > 0) {
+                $rooms[] = (int) $row['Variable'];
+            }
+        }
+        $config['roomVariableIDs'] = $rooms;
+
+        $last = json_decode((string) $this->ReadAttributeString('HeatAutoLast'), true);
+        $last = is_array($last) ? $last : [];
+        $values = (array) ($last['values'] ?? []);
+        $enabled = $this->ReadPropertyBoolean('HeatAutoEnabled');
+        $state = (string) $this->ReadAttributeString('HeatAutoState');
+        $since = (int) $this->ReadAttributeInteger('HeatAutoSince');
+        $hold = (float) $this->ReadPropertyInteger('HeatAutoMinHoldHours');
+        $holdHours = $state === 'heating' ? $hold : max(min(1.0, $hold), $hold / 4.0);
+        return [
+            'enabled'           => $enabled,
+            'active'            => $enabled && $this->heatAutoIsActive(),
+            'state'             => in_array($state, HeishaHeatingAutomation::STATES, true) ? $state : null,
+            'fault'             => (bool) $this->ReadAttributeBoolean('HeatAutoFault'),
+            'reasonCode'        => $last['reasonCode'] ?? null,
+            'reason'            => $last['text'] ?? null,
+            'outsideNowC'       => $values['outsideNowC'] ?? null,
+            'meanShortC'        => $values['meanShortC'] ?? null,
+            'meanLongC'         => $values['meanLongC'] ?? null,
+            'roomMeanC'         => $values['roomMeanC'] ?? null,
+            'roomMinC'          => $values['roomMinC'] ?? null,
+            'dewPointC'         => $values['dewPointC'] ?? null,
+            'lastSwitch'        => $since > 0 && $state !== '' ? $since : null,
+            'nextSwitchAllowed' => $since > 0 && $state !== '' ? $since + (int) round($holdHours * 3600) : null,
+            'evaluatedAt'       => $last['at'] ?? null,
+            'config'            => $config
+        ];
+    }
+
+    /**
+     * Einstellungen der Heizungs-Automatik aendern. $ConfigJson enthaelt beliebige Felder aus
+     * GetHeatingAutomation()['config'] (nur die genannten werden geaendert) und optional
+     * "active": true|false (Schalter der Automatik) und "enabled": true|false (Funktion nutzen).
+     * Unbekannte Felder, Werte ausserhalb des Bereichs oder nicht vorhandene Variablen ergeben
+     * false und aendern NICHTS (kein Teil-Ergebnis). true heisst: gespeichert.
+     */
+    public function SetHeatingAutomation(string $ConfigJson): bool
+    {
+        $input = json_decode($ConfigJson, true);
+        if (!is_array($input) || $input === []) {
+            return false;
+        }
+        $changes = [];
+        foreach ($input as $field => $value) {
+            if ($field === 'active' || $field === 'enabled') {
+                if (!is_bool($value)) {
+                    return false;
+                }
+                continue;
+            }
+            if ($field === 'roomVariableIDs') {
+                if (!is_array($value)) {
+                    return false;
+                }
+                $rows = [];
+                foreach ($value as $id) {
+                    if (!is_int($id) || !@IPS_VariableExists($id)) {
+                        return false;
+                    }
+                    $rows[] = ['Variable' => $id];
+                }
+                $changes['HeatAutoRooms'] = ['string', json_encode($rows)];
+                continue;
+            }
+            $definition = self::HEATAUTO_CONFIG[$field] ?? null;
+            if ($definition === null) {
+                return false;
+            }
+            [$property, $type, $min, $max] = $definition;
+            if ($type === 'bool') {
+                if (!is_bool($value)) {
+                    return false;
+                }
+                $changes[$property] = ['bool', $value];
+                continue;
+            }
+            if (!is_int($value) && !($type === 'float' && is_float($value))) {
+                return false;
+            }
+            if (($min !== null && $value < $min) || ($max !== null && $value > $max)) {
+                return false;
+            }
+            if (substr($field, -10) === 'VariableID' && $value > 0 && !@IPS_VariableExists((int) $value)) {
+                return false;
+            }
+            if ($field === 'heatMode' && !in_array($value, [4, 6], true)) {
+                return false;
+            }
+            $changes[$property] = [$type, $type === 'float' ? (float) $value : $value];
+        }
+
+        //Zusammenhaengende Grenzen gegen die kuenftigen Gesamtwerte pruefen
+        $future = fn ($property, $type) => array_key_exists($property, $changes) ? $changes[$property][1]
+            : ($type === 'float' ? $this->ReadPropertyFloat($property) : $this->ReadPropertyInteger($property));
+        if ($future('HeatAutoOffAboveC', 'float') < $future('HeatAutoOnBelowC', 'float') + 1
+            || $future('HeatAutoFrostC', 'float') >= $future('HeatAutoOnBelowC', 'float')
+            || $future('HeatAutoMeanLongHours', 'int') < $future('HeatAutoMeanShortHours', 'int')) {
+            return false;
+        }
+
+        $applyChanges = false;
+        foreach ($changes as $property => [$type, $value]) {
+            switch ($type) {
+                case 'bool':
+                    $current = $this->ReadPropertyBoolean($property);
+                    break;
+                case 'float':
+                    $current = $this->ReadPropertyFloat($property);
+                    break;
+                case 'string':
+                    $current = $this->ReadPropertyString($property);
+                    break;
+                default:
+                    $current = $this->ReadPropertyInteger($property);
+            }
+            if ($current !== $value) {
+                IPS_SetProperty($this->InstanceID, $property, $value);
+                $applyChanges = true;
+            }
+        }
+        if (array_key_exists('enabled', $input) && $input['enabled'] !== $this->ReadPropertyBoolean('HeatAutoEnabled')) {
+            IPS_SetProperty($this->InstanceID, 'HeatAutoEnabled', $input['enabled']);
+            $applyChanges = true;
+        }
+        if ($applyChanges) {
+            IPS_ApplyChanges($this->InstanceID);
+        }
+        $enabledNow = array_key_exists('enabled', $input) ? $input['enabled'] : $this->ReadPropertyBoolean('HeatAutoEnabled');
+        if (array_key_exists('active', $input) && $enabledNow) {
+            $this->RequestAction('HeatAuto_Active', $input['active']);
+        }
+        return true;
+    }
 
     /**
      * Wert der Heiz-/Kuehlanforderung: -5..+5 = Verschiebung, ab 20 = direkte Vorlauf-Solltemperatur,

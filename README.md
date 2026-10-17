@@ -108,6 +108,22 @@ Liefert der Zähler (automatisch oder eigen) zusätzlich einen Energiezähler, b
 
 Hinweis: Läuft der Heizstab, steckt seine Wärme in der gemessenen thermischen Leistung. Da nur die Wärmepumpen-Phase im Nenner steht, fällt der COP in diesen Phasen optisch zu gut aus — für die reine Verdichter-Bewertung ist das aber genau richtig.
 
+## Heizungs-Automatik (optional)
+
+Schaltet **nur den Heizbetrieb der Räume** ein und aus, nie die ganze Wärmepumpe: Das Modul sendet `SetOperationMode` und wechselt zwischen *Heizen + Warmwasser* (4, oder *Auto + Warmwasser* 6), *Kühlen + Warmwasser* (5) und *nur Warmwasser* (3). Das Warmwasser läuft in jedem Zustand weiter. Ausgeliefert ist die Funktion **aus**; im Formular unter „Heizungs-Automatik" aktivieren, dann wirkt sie erst, wenn die Schaltervariable `Heizungs-Automatik` (`HeatAuto_Active`) eingeschaltet wird.
+
+Alle 15 Minuten wird in dieser Reihenfolge entschieden:
+
+1. **Frostschutz** — Außenmittel unter 5 °C oder ein Raum unter 10 °C: Heizen, die Sperrzeit wird übergangen. Fehlen die Außendaten, bleibt die Heizung ebenfalls an.
+2. **Kalt** — kurzes Außenmittel (Standard 24 h) unter 12 °C: Heizen.
+3. **Warm** — kurzes UND langes Mittel (Standard 48 h) über 16 °C und das lange Mittel zu mindestens 90 % belegt: Heizung aus. Das lange Mittel macht das Ausschalten bewusst träge.
+4. **Dazwischen** — wahlweise entscheiden die Räume (Mittel der gewählten Wandfühler): länger als die Verzögerung (120 min) unter dem Mindestwert (19,5 °C) → Heizen, über Mindestwert + Hysterese (1,5 K) → Heizung aus; sonst bleibt der Zustand.
+5. **Sperrzeit** — nach einem Wechsel bleibt der Zustand 12 h (das Wiedereinschalten schon nach einem Viertel davon).
+
+**Kühlen** (optional) braucht eine Taupunkt- oder Feuchte-Variable der Raumluft: Es startet nur, wenn das tiefste Kühlziel der Kühlkurve mindestens den Sicherheitsabstand (2 K) über dem Taupunkt liegt, und stoppt sofort, wenn die gemessene Vorlauftemperatur darunter fällt. Die Kühlkurve selbst ändert das Modul nicht.
+
+Jeder Befehl wird nach ca. 45 s über die gemeldete Betriebsart kontrolliert und bis zu dreimal wiederholt (die Anlage quittiert Befehle nie). Die Variable `Heizungs-Automatik: Begründung` nennt im Klartext, warum gerade so entschieden wurde. Beim Ausschalten der Automatik wird ein abgeschalteter Heizbetrieb wiederhergestellt. Die Einstellungen sind per `HEISHA_GetHeatingAutomation()` / `HEISHA_SetHeatingAutomation()` auch von anderen Modulen (z. B. dem WP-Monitor) les- und änderbar.
+
 ## Energiespar-Prüfung
 
 Der Bereich **💡 Energiespar-Prüfung** in der Instanz-Konfiguration bewertet die von der Anlage empfangenen Einstellwerte anhand von Richtwerten aus den dokumentierten [HeishaMon-Beispielregelwerken](https://github.com/heishamon/HeishaMon/tree/main/Examples/Rules) und dem Panasonic-Servicehandbuch: Taktverhalten (mittlere Laufzeit je Verdichterstart), Warmwasser-Sollwert und -Nachheizdelta, Heizstab-Freigabetemperatur und -Verzögerung, Heizgrenze, Heizkurven-Sollwert und Pumpenansteuerung. Die Prüfung ist **reine Anzeige** — es wird nichts verändert. Die bewerteten Werte sind Service-Einstellungen der Wärmepumpe: Änderungen bewusst vornehmen, im Zweifel mit dem Fachbetrieb.
