@@ -375,7 +375,7 @@
                                 "items": [
                                     {
                                         "type": "Label",
-                                        "caption": "Every 15 minutes the module checks, in this order: (1) Frost protection: outside mean below the frost threshold, or any room below 10 °C, always means heating on - lock time ignored. (2) Outside mean below \"heating on\" threshold: heating on. (3) Both outside means above \"heating off\" threshold: heating off. The long mean makes switching off slow on purpose, one warm day does not shut the heating off. (4) In between: your rooms decide, if selected - too cold for the delay time: heating on; warm enough for the delay time: heating off; otherwise the state is kept (hysteresis). (5) After every change the new state is kept for the lock time (switching on again after only a quarter of it). Missing outside data means heating stays on. After each command the module reads the operating mode back and retries up to three times; the unit never acknowledges commands itself. When you switch the automation off, a disabled heating is turned on again."
+                                        "caption": "Every 15 minutes the module checks, in this order: (1) Frost protection: outside mean below the frost threshold, or any room below 10 °C, always means heating on - lock time ignored. (2) Outside mean below \"heating on\" threshold: heating on. (3) Both outside means above \"heating off\" threshold: heating off. The long mean makes switching off slow on purpose, one warm day does not shut the heating off. (4) In between: your rooms decide, if selected - too cold for the delay time: heating on; warm enough for the delay time: heating off; otherwise the state is kept (hysteresis). (5) After every change the new state is kept for the lock time (switching on again after only a quarter of it). Missing outside data means heating stays on. After each command the module reads the operating mode back and retries up to three times; the unit never acknowledges commands itself. If the operating mode is changed from outside (e.g. in the dashboard), the automation accepts that and waits for the lock time before acting again - only frost protection acts immediately. When you switch the automation off, a disabled heating is turned on again."
                                     }
                                 ]
                             }
@@ -473,6 +473,11 @@
                             "caption": "Rooms refine the decision between the two thresholds. Select wall sensors of the rooms you want to keep comfortable - not radiator thermostats right at the heater, smoke detectors or sensors that sometimes report 0. The mean over all valid rooms is used."
                         },
                         {
+                            "type": "CheckBox",
+                            "name": "HeatAutoUseRoom",
+                            "caption": "Let the rooms influence the decision"
+                        },
+                        {
                             "type": "List",
                             "name": "HeatAutoRooms",
                             "caption": "Room temperature variables",
@@ -514,11 +519,12 @@
                                 },
                                 {
                                     "type": "NumberSpinner",
-                                    "name": "HeatAutoRoomDelayMin",
+                                    "name": "HeatAutoRoomDelayHours",
                                     "caption": "Delay before acting",
-                                    "suffix": " min",
+                                    "suffix": " h",
                                     "minimum": 0,
-                                    "maximum": 720
+                                    "maximum": 12,
+                                    "digits": 2
                                 }
                             ]
                         }

@@ -117,12 +117,14 @@ Alle 15 Minuten wird in dieser Reihenfolge entschieden:
 1. **Frostschutz** — Außenmittel unter 5 °C oder ein Raum unter 10 °C: Heizen, die Sperrzeit wird übergangen. Fehlen die Außendaten, bleibt die Heizung ebenfalls an.
 2. **Kalt** — kurzes Außenmittel (Standard 24 h) unter 12 °C: Heizen.
 3. **Warm** — kurzes UND langes Mittel (Standard 48 h) über 16 °C und das lange Mittel zu mindestens 90 % belegt: Heizung aus. Das lange Mittel macht das Ausschalten bewusst träge.
-4. **Dazwischen** — wahlweise entscheiden die Räume (Mittel der gewählten Wandfühler): länger als die Verzögerung (120 min) unter dem Mindestwert (19,5 °C) → Heizen, über Mindestwert + Hysterese (1,5 K) → Heizung aus; sonst bleibt der Zustand.
+4. **Dazwischen** — wahlweise entscheiden die Räume (Mittel der gewählten Wandfühler): länger als die Verzögerung (2 h) unter dem Mindestwert (19,5 °C) → Heizen, über Mindestwert + Hysterese (1,5 K) → Heizung aus; sonst bleibt der Zustand.
 5. **Sperrzeit** — nach einem Wechsel bleibt der Zustand 12 h (das Wiedereinschalten schon nach einem Viertel davon).
+
+Rangfolge: **Frostschutz > Nutzer > Automatik.** Ändert jemand die Betriebsart von außen (z. B. im Dashboard), übernimmt die Automatik das, sendet keinen Gegenbefehl und beginnt die Sperrzeit neu; nur der Frostschutz greift sofort ein. Auto+Warmwasser statt Heizen+Warmwasser gilt als dieselbe Variante.
 
 **Kühlen** (optional) braucht eine Taupunkt- oder Feuchte-Variable der Raumluft: Es startet nur, wenn das tiefste Kühlziel der Kühlkurve mindestens den Sicherheitsabstand (2 K) über dem Taupunkt liegt, und stoppt sofort, wenn die gemessene Vorlauftemperatur darunter fällt. Die Kühlkurve selbst ändert das Modul nicht.
 
-Jeder Befehl wird nach ca. 45 s über die gemeldete Betriebsart kontrolliert und bis zu dreimal wiederholt (die Anlage quittiert Befehle nie). Die Variable `Heizungs-Automatik: Begründung` nennt im Klartext, warum gerade so entschieden wurde. Beim Ausschalten der Automatik wird ein abgeschalteter Heizbetrieb wiederhergestellt. Die Einstellungen sind per `HEISHA_GetHeatingAutomation()` / `HEISHA_SetHeatingAutomation()` auch von anderen Modulen (z. B. dem WP-Monitor) les- und änderbar.
+Jeder Befehl wird nach ca. 45 s über die gemeldete Betriebsart kontrolliert und bis zu dreimal wiederholt (die Anlage quittiert Befehle nie). Die Variable `Heizungs-Automatik: Begründung` nennt im Klartext, warum gerade so entschieden wurde. Beim Ausschalten der Automatik wird ein abgeschalteter Heizbetrieb wiederhergestellt. Zustand und Einstellungen sind per `HEISHA_GetHeatingAutomation()` lesbar (inkl. Grenzen, Schrittweite, Einheit und Standardwert je Einstellung sowie einer `configRevision`), per `HEISHA_SetHeatingAutomation()` als Teil-Update änderbar: Rückgabe `ok`, Feldfehler in `errors`, die geltende `config` und die neue `configRevision`; wird eine veraltete Revision mitgeschickt, ändert sich nichts. Gedacht für den WP-Monitor des NRGDashboards.
 
 ## Energiespar-Prüfung
 
