@@ -32,7 +32,7 @@
                 },
                 {
                     "type": "Label",
-                    "caption": "🌡️ Heating automation: Optionally switches only the room heating on and off (and, with a dew point source, cooling) from the outside temperature means and your room temperatures. Hot water is never affected. Turn it on with the switch variable \"Heating automation\"; switching it off restores the heating."
+                    "caption": "🌡️ Heating automation: Optionally switches only the room heating on and off (and, with a dew point source, cooling) from the outside temperature means and your room temperatures. Hot water is never affected. Turn it on with the switch variable \"Heating automation\"; switching it off restores the heating. Humidity and room sensors are found automatically (your own selection overrides)."
                 },
                 {
                     "type": "Label",
@@ -470,7 +470,12 @@
                     "items": [
                         {
                             "type": "Label",
-                            "caption": "Rooms refine the decision between the two thresholds. Select wall sensors of the rooms you want to keep comfortable - not radiator thermostats right at the heater, smoke detectors or sensors that sometimes report 0. The mean over all valid rooms is used."
+                            "caption": "Rooms refine the decision between the two thresholds. Without your own selection the module uses one temperature sensor per room of the Raumstruktur module, if installed (at least three rooms, outdoor and unheated rooms excluded, median of the rooms). Select your own sensors to override: wall sensors of the rooms you want to keep comfortable, not radiator thermostats right at the heater, smoke detectors or sensors that sometimes report 0. Your own selection uses the mean."
+                        },
+                        {
+                            "type": "Label",
+                            "name": "HeatAutoRoomsStatus",
+                            "caption": "ROOMSSTATUS"
                         },
                         {
                             "type": "CheckBox",
@@ -536,7 +541,7 @@
                     "items": [
                         {
                             "type": "Label",
-                            "caption": "Cooling uses the operating mode \"Cooling + hot water\". It is only allowed when the dew point is known and the lowest cooling target of the heating curve stays above the dew point plus the safety margin - otherwise water would condense on radiators and pipes. Provide either a dew point variable or a humidity variable of the room air."
+                            "caption": "Cooling uses the operating mode \"Cooling + hot water\". It is only allowed when the dew point is known and the lowest cooling target of the heating curve stays above the dew point plus the safety margin - otherwise water would condense on radiators and pipes. The module finds humidity sensors of the rooms on its own (outdoor and soil moisture excluded) and uses the highest value; you can name your own humidity variables or a dew point variable instead."
                         },
                         {
                             "type": "RowLayout",
@@ -561,6 +566,11 @@
                                     }
                                 }
                             ]
+                        },
+                        {
+                            "type": "Label",
+                            "name": "HeatAutoHumidityStatus",
+                            "caption": "HUMIDITYSTATUS"
                         },
                         {
                             "type": "RowLayout",
@@ -597,12 +607,26 @@
                         {
                             "type": "SelectVariable",
                             "name": "HeatAutoDewVariable",
-                            "caption": "Dew point of the room air (°C)"
+                            "caption": "Dew point of the room air (°C) - optional, replaces the humidity sources"
                         },
                         {
-                            "type": "SelectVariable",
-                            "name": "HeatAutoHumidityVariable",
-                            "caption": "or: relative humidity of the room air (%)"
+                            "type": "List",
+                            "name": "HeatAutoHumidityVariables",
+                            "caption": "Humidity of the room air (relative, %) - empty = find automatically",
+                            "rowCount": 3,
+                            "add": true,
+                            "delete": true,
+                            "columns": [
+                                {
+                                    "caption": "Humidity variable",
+                                    "name": "Variable",
+                                    "width": "auto",
+                                    "add": 0,
+                                    "edit": {
+                                        "type": "SelectVariable"
+                                    }
+                                }
+                            ]
                         }
                     ]
                 }

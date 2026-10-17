@@ -56,6 +56,7 @@ class HeishaMon extends IPSModule
         '1.35.0' => [
             'New: heating automation (optional, panel "Heating automation"). Switches only the room heating on and off - never the whole heat pump, hot water keeps running - from the outside temperature (short and long mean, hysteresis, lock time) and optionally your room temperatures. Frost protection always wins, missing data keeps the heating on. Off by default; it only acts once you switch the new variable "Heating automation" on, and switching it off restores the heating.',
             'New: optional cooling in the automation, only with a dew point (or humidity) source: it starts only if the lowest cooling target of the heating curve stays above the dew point plus a safety margin and stops at once when the flow temperature falls below it.',
+            'New: the automation finds its sources on its own - humidity sensors of the rooms (outdoor and soil moisture excluded, highest value counts) and one temperature sensor per room of the Raumstruktur module (outdoor and unheated rooms excluded, at least three rooms, median). Your own selection always overrides; status lines in the form show what applies.',
             'New: after every operating mode command the module reads the mode back and retries up to three times - the unit never acknowledges commands itself. If someone changes the operating mode from outside (e.g. in the dashboard), the automation accepts that and waits for the lock time; only frost protection acts immediately.'
         ]
     ];
@@ -279,6 +280,14 @@ class HeishaMon extends IPSModule
         $this->patchFormElement($form['elements'], 'HeatAutoStatus', function (&$element) use ($heatAutoLine, $heatAutoColor) {
             $element['caption'] = $heatAutoLine;
             $element['color'] = $heatAutoColor;
+        });
+
+        [$roomsLine, $humidityLine] = $this->heatAutoSourceStatusLines();
+        $this->patchFormElement($form['elements'], 'HeatAutoRoomsStatus', function (&$element) use ($roomsLine) {
+            $element['caption'] = $roomsLine;
+        });
+        $this->patchFormElement($form['elements'], 'HeatAutoHumidityStatus', function (&$element) use ($humidityLine) {
+            $element['caption'] = $humidityLine;
         });
 
         [$statusLine, $statusColor] = $this->meterHubLinkStatusLine();
@@ -2405,7 +2414,6 @@ class HeishaMon extends IPSModule
         'coolRoomOnC'              => ['HeatAutoCoolRoomOnC', 'float', 20, 32],
         'coolOutsideMinC'          => ['HeatAutoCoolOutsideMinC', 'float', 10, 35],
         'dewPointVariableID'       => ['HeatAutoDewVariable', 'int', 0, null],
-        'humidityVariableID'       => ['HeatAutoHumidityVariable', 'int', 0, null],
         'dewMarginK'               => ['HeatAutoDewMarginK', 'float', 0.5, 10]
     ];
 
@@ -2429,7 +2437,7 @@ class HeishaMon extends IPSModule
         $this->RegisterPropertyFloat('HeatAutoCoolRoomOnC', 25);
         $this->RegisterPropertyFloat('HeatAutoCoolOutsideMinC', 20);
         $this->RegisterPropertyInteger('HeatAutoDewVariable', 0);
-        $this->RegisterPropertyInteger('HeatAutoHumidityVariable', 0);
+        $this->RegisterPropertyString('HeatAutoHumidityVariables', '[]');
         $this->RegisterPropertyFloat('HeatAutoDewMarginK', 2);
 
         //Zustand ueberlebt Neustarts: Aussentemperatur-Stuetzstellen, letzter Zustand, Sperrzeit-
@@ -2446,6 +2454,8 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeBoolean('HeatAutoFault', false);
         $this->RegisterAttributeString('HeatAutoLast', '{}');
         $this->RegisterAttributeString('HeatAutoLastError', '');
+        $this->RegisterAttributeString('HeatAutoHumidityCache', '{}');
+        $this->RegisterAttributeString('HeatAutoRoomCache', '{}');
         $this->RegisterTimer('HeatAutoTick', 0, 'HEISHA_HeatingAutomationTick($_IPS[\'TARGET\']);');
         $this->RegisterTimer('HeatAutoVerify', 0, 'HEISHA_HeatingAutomationVerify($_IPS[\'TARGET\']);');
     }
@@ -2482,6 +2492,9 @@ class HeishaMon extends IPSModule
             'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION
         ], 272, true);
         $this->SetTimerInterval('HeatAutoTick', self::HEATAUTO_TICK_MS);
+        //Quellen nach jeder Aenderung der Einstellungen neu suchen
+        $this->WriteAttributeString('HeatAutoHumidityCache', '{}');
+        $this->WriteAttributeString('HeatAutoRoomCache', '{}');
         //Wurde die Aussentemperatur-Quelle geaendert, taugen die alten Stuetzstellen nicht mehr
         if ((int) $this->ReadAttributeInteger('HeatAutoRingSource') !== $this->heatAutoOutsideID()) {
             $this->WriteAttributeString('HeatAutoRing', '[]');
@@ -2572,21 +2585,189 @@ class HeishaMon extends IPSModule
         return $this->heatAutoReadNumber($this->heatAutoOutsideID(), -50, 60);
     }
 
-    /** @return array{0: ?float, 1: ?float, 2: int} Raum-Mittel, kaeltester Raum, Anzahl gueltiger Raeume */
+    private const RAUMSTRUKTUR_MODULE_GUID = '{CA700334-0982-F356-0617-6952868137E9}';
+    private const HEATAUTO_DISCOVERY_TTL = 21600;
+
+    private function heatAutoVariableProfile(int $variableID): string
+    {
+        $variable = IPS_GetVariable($variableID);
+        return (string) (($variable['VariableCustomProfile'] ?? '') !== '' ? $variable['VariableCustomProfile'] : ($variable['VariableProfile'] ?? ''));
+    }
+
+    private function heatAutoIsNumeric(int $variableID): bool
+    {
+        return in_array((int) (IPS_GetVariable($variableID)['VariableType'] ?? -1), [VARIABLETYPE_INTEGER, VARIABLETYPE_FLOAT], true);
+    }
+
+    /** Aussen-/Bodenfeuchte u. ae. ausschliessen: eigener Name, sonst Namen der uebergeordneten Geraete (bis 3 Ebenen). */
+    private function heatAutoLooksOutdoor(int $variableID, string $name): bool
+    {
+        if (HeishaHeatingAutomation::looksOutdoorOrUnheated($name)) {
+            return true;
+        }
+        if (HeishaHeatingAutomation::looksIndoor($name)) {
+            return false;
+        }
+        $parent = $variableID;
+        for ($level = 0; $level < 3; $level++) {
+            $parent = (int) @IPS_GetParent($parent);
+            if ($parent <= 0) {
+                break;
+            }
+            if ($parent === $this->InstanceID) {
+                return true;
+            }
+            if (HeishaHeatingAutomation::looksOutdoorOrUnheated((string) @IPS_GetName($parent))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** @return int[] Variablen mit Feuchte-Charakter (Profil ~Humidity* oder Name), ohne Aussen/Boden; 6 h gecacht */
+    private function heatAutoDiscoverHumidity(): array
+    {
+        $cache = json_decode((string) $this->ReadAttributeString('HeatAutoHumidityCache'), true);
+        if (is_array($cache) && isset($cache['at']) && time() - (int) $cache['at'] < self::HEATAUTO_DISCOVERY_TTL) {
+            return array_map('intval', (array) ($cache['ids'] ?? []));
+        }
+        $ids = [];
+        foreach (@IPS_GetVariableList() ?: [] as $id) {
+            if (!$this->heatAutoIsNumeric($id)) {
+                continue;
+            }
+            $name = (string) IPS_GetName($id);
+            if (!HeishaHeatingAutomation::looksLikeHumidity($name, $this->heatAutoVariableProfile($id)) || $this->heatAutoLooksOutdoor($id, $name)) {
+                continue;
+            }
+            $ids[] = (int) $id;
+        }
+        $this->WriteAttributeString('HeatAutoHumidityCache', json_encode(['at' => time(), 'ids' => $ids]));
+        return $ids;
+    }
+
+    /** @return int[] ein Temperaturfuehler je Raum der Raumstruktur (Wandfuehler vor Thermostat), ohne Aussen-/unbeheizte Raeume; 6 h gecacht */
+    private function heatAutoDiscoverRooms(): array
+    {
+        $cache = json_decode((string) $this->ReadAttributeString('HeatAutoRoomCache'), true);
+        if (is_array($cache) && isset($cache['at']) && time() - (int) $cache['at'] < self::HEATAUTO_DISCOVERY_TTL) {
+            return array_map('intval', (array) ($cache['ids'] ?? []));
+        }
+        $function = function_exists('RAUM_GetStructure') ? 'RAUM_GetStructure' : (function_exists('STRUKT_GetStructure') ? 'STRUKT_GetStructure' : '');
+        $ids = [];
+        if ($function !== '') {
+            foreach (@IPS_GetInstanceListByModuleID(self::RAUMSTRUKTUR_MODULE_GUID) ?: [] as $structureID) {
+                $structure = json_decode((string) @$function($structureID), true);
+                foreach (is_array($structure) ? ($structure['rooms'] ?? []) : [] as $room) {
+                    if (HeishaHeatingAutomation::looksOutdoorOrUnheated((string) ($room['label'] ?? ''))) {
+                        continue;
+                    }
+                    $best = null;
+                    foreach ((array) ($room['deviceInstanceIDs'] ?? []) as $deviceID) {
+                        foreach (@IPS_GetChildrenIDs((int) $deviceID) ?: [] as $childID) {
+                            if (!@IPS_VariableExists($childID) || !$this->heatAutoIsNumeric($childID)) {
+                                continue;
+                            }
+                            $rank = HeishaHeatingAutomation::roomTemperatureRank((string) IPS_GetName($childID), $this->heatAutoVariableProfile($childID));
+                            if ($rank !== null && ($best === null || $rank < $best[0])) {
+                                $best = [$rank, (int) $childID];
+                            }
+                        }
+                    }
+                    if ($best !== null) {
+                        $ids[] = $best[1];
+                    }
+                }
+            }
+        }
+        $this->WriteAttributeString('HeatAutoRoomCache', json_encode(['at' => time(), 'ids' => $ids]));
+        return $ids;
+    }
+
+    /**
+     * Raumquelle: eigene Auswahl > automatisch aus der Raumstruktur (mind. 3 Raeume mit gueltigem Wert,
+     * Median statt Mittelwert gegen Ausreisser) > keine. mode: own|auto|none|off
+     *
+     * @return array{mode: string, ids: int[]}
+     */
+    private function heatAutoRoomSource(): array
+    {
+        if (!$this->ReadPropertyBoolean('HeatAutoUseRoom')) {
+            return ['mode' => 'off', 'ids' => []];
+        }
+        $own = $this->heatAutoRoomIDs();
+        if ($own !== []) {
+            return ['mode' => 'own', 'ids' => $own];
+        }
+        $auto = $this->heatAutoDiscoverRooms();
+        $valid = array_filter($auto, fn ($id) => $this->heatAutoReadNumber((int) $id, 5, 45) !== null);
+        if (count($valid) >= HeishaHeatingAutomation::AUTO_ROOMS_MIN) {
+            return ['mode' => 'auto', 'ids' => array_values($auto)];
+        }
+        return ['mode' => 'none', 'ids' => []];
+    }
+
+    /** @return array{mean: ?float, min: ?float, max: ?float, count: int, mode: string} */
     private function heatAutoRooms(): array
     {
-        $rows = json_decode((string) $this->ReadPropertyString('HeatAutoRooms'), true);
+        $source = $this->heatAutoRoomSource();
         $values = [];
-        foreach (is_array($rows) ? $rows : [] as $row) {
-            $value = $this->heatAutoReadNumber((int) ($row['Variable'] ?? 0), 5, 45);
+        foreach ($source['ids'] as $id) {
+            $value = $this->heatAutoReadNumber((int) $id, 5, 45);
             if ($value !== null) {
                 $values[] = $value;
             }
         }
         if ($values === []) {
-            return [null, null, 0];
+            return ['mean' => null, 'min' => null, 'max' => null, 'count' => 0, 'mode' => $source['mode']];
         }
-        return [array_sum($values) / count($values), min($values), count($values)];
+        //Automatisch gefundene Raeume: Median (ein Fuehler neben einer Waermequelle darf nicht entscheiden)
+        $mean = $source['mode'] === 'auto' ? HeishaHeatingAutomation::median($values) : array_sum($values) / count($values);
+        return ['mean' => $mean, 'min' => min($values), 'max' => max($values), 'count' => count($values), 'mode' => $source['mode']];
+    }
+
+    /**
+     * Feuchtequelle: Taupunkt-Variable > eigene Feuchte-Liste > automatisch gefundene Feuchtesensoren > keine.
+     *
+     * @return array{mode: string, ids: int[]}
+     */
+    private function heatAutoHumiditySource(): array
+    {
+        $dewID = (int) $this->ReadPropertyInteger('HeatAutoDewVariable');
+        if ($dewID > 0) {
+            return ['mode' => 'own', 'ids' => [$dewID], 'isDewPoint' => true];
+        }
+        $own = $this->heatAutoListIDs('HeatAutoHumidityVariables');
+        if ($own !== []) {
+            return ['mode' => 'own', 'ids' => $own, 'isDewPoint' => false];
+        }
+        $auto = $this->heatAutoDiscoverHumidity();
+        return $auto === [] ? ['mode' => 'none', 'ids' => [], 'isDewPoint' => false] : ['mode' => 'auto', 'ids' => $auto, 'isDewPoint' => false];
+    }
+
+    /** Hoechste gueltige Feuchte aller Quellen (konservativ) bzw. der Taupunkt der Taupunkt-Variable. */
+    private function heatAutoHumidity(?float $roomMaxC): array
+    {
+        $source = $this->heatAutoHumiditySource();
+        $result = ['mode' => $source['mode'], 'count' => 0, 'rh' => null, 'dewC' => null];
+        if ($source['isDewPoint']) {
+            $dew = $this->heatAutoReadNumber($source['ids'][0], -40, 40);
+            return ['count' => $dew === null ? 0 : 1, 'dewC' => $dew] + $result;
+        }
+        $values = [];
+        foreach ($source['ids'] as $id) {
+            $value = $this->heatAutoReadNumber((int) $id, 1, 100);
+            if ($value !== null) {
+                $values[] = $value;
+            }
+        }
+        if ($values === []) {
+            return $result;
+        }
+        $rh = max($values);
+        //Ohne bekannte Raumtemperatur bewusst hoch angenommen (hoeherer Taupunkt = sicherer)
+        $temperature = $roomMaxC ?? HeishaHeatingAutomation::DEW_ASSUMED_ROOM_C;
+        return ['count' => count($values), 'rh' => $rh, 'dewC' => HeishaHeatingAutomation::dewPoint($temperature, $rh)] + $result;
     }
 
     /** Beim ersten Start die Stuetzstellen aus dem Archiv vorbefuellen (falls die Quelle geloggt wird). */
@@ -2632,17 +2813,12 @@ class HeishaMon extends IPSModule
     }
 
     /** Taupunkt der Raumluft und Freigabe: tiefster Kuehl-Sollwert muss ueber Taupunkt + Sicherheitsabstand liegen. */
-    private function heatAutoDew(?float $roomMean, string $state): array
+    private function heatAutoDew(?float $roomMaxC, string $state): array
     {
-        $dew = $this->heatAutoReadNumber((int) $this->ReadPropertyInteger('HeatAutoDewVariable'), -40, 40);
-        if ($dew === null && $roomMean !== null) {
-            $humidity = $this->heatAutoReadNumber((int) $this->ReadPropertyInteger('HeatAutoHumidityVariable'), 1, 100);
-            if ($humidity !== null) {
-                $dew = HeishaHeatingAutomation::dewPoint($roomMean, $humidity);
-            }
-        }
+        $humidity = $this->heatAutoHumidity($roomMaxC);
+        $dew = $humidity['dewC'];
         if ($dew === null) {
-            return ['dewC' => null, 'ok' => null];
+            return ['dewC' => null, 'ok' => null, 'rh' => $humidity['rh'], 'mode' => $humidity['mode'], 'count' => $humidity['count']];
         }
         $lowest = null;
         foreach (['z1' => 'Z1', 'z2' => 'Z2'] as $zone => $prefix) {
@@ -2655,8 +2831,9 @@ class HeishaMon extends IPSModule
                 $lowest = $lowest === null ? $zoneLow : min($lowest, $zoneLow);
             }
         }
+        $info = ['rh' => $humidity['rh'], 'mode' => $humidity['mode'], 'count' => $humidity['count']];
         if ($lowest === null) {
-            return ['dewC' => $dew, 'ok' => null];
+            return ['dewC' => $dew, 'ok' => null] + $info;
         }
         $margin = (float) $this->ReadPropertyFloat('HeatAutoDewMarginK');
         $ok = $lowest >= $dew + $margin;
@@ -2666,7 +2843,7 @@ class HeishaMon extends IPSModule
                 $ok = false;
             }
         }
-        return ['dewC' => $dew, 'ok' => $ok];
+        return ['dewC' => $dew, 'ok' => $ok] + $info;
     }
 
     private static function heatAutoMinutes(int $since, int $now): int
@@ -2716,11 +2893,14 @@ class HeishaMon extends IPSModule
         $short = HeishaHeatingAutomation::mean($ring, $now, (float) $this->ReadPropertyInteger('HeatAutoMeanShortHours'));
         $long = HeishaHeatingAutomation::mean($ring, $now, (float) $this->ReadPropertyInteger('HeatAutoMeanLongHours'));
 
-        [$roomMean, $roomMin, $roomCount] = $this->ReadPropertyBoolean('HeatAutoUseRoom') ? $this->heatAutoRooms() : [null, null, 0];
+        $rooms = $this->heatAutoRooms();
+        $roomMean = $rooms['mean'];
+        $roomMin = $rooms['min'];
+        $roomCount = $rooms['count'];
         $coldSince = $this->heatAutoCounter('HeatAutoColdSince', $roomMean !== null && $roomMean < $cfg['roomMinC'], $now);
         $warmSince = $this->heatAutoCounter('HeatAutoWarmSince', $roomMean !== null && $roomMean >= $cfg['roomMinC'] + $cfg['roomHystK'], $now);
         $hotSince = $this->heatAutoCounter('HeatAutoHotSince', $roomMean !== null && $roomMean > $cfg['coolRoomOnC'], $now);
-        $dew = $cfg['coolEnabled'] ? $this->heatAutoDew($roomMean, $state) : ['dewC' => null, 'ok' => null];
+        $dew = $cfg['coolEnabled'] ? $this->heatAutoDew($rooms['max'], $state) : ['dewC' => null, 'ok' => null];
 
         $decision = HeishaHeatingAutomation::decide([
             'state'        => $state,
@@ -2768,6 +2948,10 @@ class HeishaMon extends IPSModule
             'roomMeanC'   => $roomMean,
             'roomMinC'    => $roomMin,
             'roomCount'   => $roomCount,
+            'roomSource'  => $rooms['mode'],
+            'humidityRH'  => $dew['rh'] ?? null,
+            'humiditySource' => $dew['mode'] ?? null,
+            'humidityCount' => $dew['count'] ?? 0,
             'dewPointC'   => $dew['dewC'],
             'dewOk'       => $dew['ok'],
             'since'       => $since
@@ -2931,6 +3115,42 @@ class HeishaMon extends IPSModule
         return $code;
     }
 
+    /** Zeilen "Raeume" und "Feuchte" fuer das Konfigurationsformular: was gilt tatsaechlich (🔗 automatisch / ✏️ eigen / ℹ️ nichts). */
+    private function heatAutoSourceStatusLines(): array
+    {
+        if (!$this->ReadPropertyBoolean('HeatAutoEnabled')) {
+            return ['', ''];
+        }
+        $rooms = $this->heatAutoRooms();
+        switch ($rooms['mode']) {
+            case 'own':
+                $roomsLine = sprintf($this->Translate('✏️ Your own room selection: %d rooms with a valid value (mean %s °C).'), $rooms['count'], $this->heatAutoNumber($rooms['mean'] ?? 0));
+                break;
+            case 'auto':
+                $roomsLine = sprintf($this->Translate('🔗 Rooms found automatically via Raumstruktur: %d rooms with a valid value (median %s °C).'), $rooms['count'], $this->heatAutoNumber($rooms['mean'] ?? 0));
+                break;
+            case 'off':
+                $roomsLine = $this->Translate('ℹ️ Rooms are switched off - only the outside temperature decides.');
+                break;
+            default:
+                $roomsLine = $this->Translate('ℹ️ No rooms: without your own selection and without Raumstruktur (at least three rooms with a temperature sensor) only the outside temperature decides.');
+        }
+        $humidity = $this->heatAutoHumidity($rooms['max']);
+        $dew = $humidity['dewC'] === null ? '' : ' → ' . sprintf($this->Translate('dew point %s °C'), $this->heatAutoNumber($humidity['dewC']));
+        if ($humidity['count'] === 0) {
+            $humidityLine = $humidity['mode'] === 'none'
+                ? $this->Translate('ℹ️ No humidity or dew point source found - select your own below, otherwise cooling stays off.')
+                : $this->Translate('⚠️ The humidity or dew point sources currently have no valid value - cooling stays off.');
+        } elseif ($humidity['mode'] === 'auto') {
+            $humidityLine = sprintf($this->Translate('🔗 Humidity found automatically: %d sensors, highest value %s %%'), $humidity['count'], $this->heatAutoNumber($humidity['rh'] ?? 0)) . $dew . '.';
+        } else {
+            $humidityLine = $humidity['rh'] === null
+                ? $this->Translate('✏️ Your own dew point variable') . $dew . '.'
+                : sprintf($this->Translate('✏️ Your own humidity variables: highest value %s %%'), $this->heatAutoNumber($humidity['rh'])) . $dew . '.';
+        }
+        return [$roomsLine, $humidityLine];
+    }
+
     /** Zeile fuer das Konfigurationsformular. */
     private function heatAutoStatusLine(): array
     {
@@ -2963,7 +3183,6 @@ class HeishaMon extends IPSModule
         'coolRoomOnC'             => [0.5, '°C', 25.0],
         'coolOutsideMinC'         => [0.5, '°C', 20.0],
         'dewPointVariableID'      => [1, '', 0],
-        'humidityVariableID'      => [1, '', 0],
         'dewMarginK'              => [0.5, 'K', 2.0]
     ];
 
@@ -2983,13 +3202,20 @@ class HeishaMon extends IPSModule
             }
         }
         $config['roomVariableIDs'] = $this->heatAutoRoomIDs();
+        $config['humidityVariableIDs'] = $this->heatAutoListIDs('HeatAutoHumidityVariables');
         return $config;
     }
 
     private function heatAutoRoomIDs(): array
     {
+        return $this->heatAutoListIDs('HeatAutoRooms');
+    }
+
+    /** Variablen-IDs einer Listen-Eigenschaft (Spalte "Variable"). */
+    private function heatAutoListIDs(string $property): array
+    {
         $ids = [];
-        $rows = json_decode((string) $this->ReadPropertyString('HeatAutoRooms'), true);
+        $rows = json_decode((string) $this->ReadPropertyString($property), true);
         foreach (is_array($rows) ? $rows : [] as $row) {
             if ((int) ($row['Variable'] ?? 0) > 0) {
                 $ids[] = (int) $row['Variable'];
@@ -3024,15 +3250,24 @@ class HeishaMon extends IPSModule
             $limits[$field] = ['type' => $type, 'min' => $min, 'max' => $max, 'step' => $step, 'unit' => $unit, 'default' => $default];
         }
 
+        $roomSource = $this->heatAutoRoomSource();
+        $humiditySource = $this->heatAutoHumiditySource();
+        $roomStats = $this->heatAutoRooms();
+        $humidity = $this->heatAutoHumidity($roomStats['max']);
         $rooms = [];
-        foreach ($config['roomVariableIDs'] as $id) {
+        foreach ($roomSource['ids'] as $id) {
             $parent = @IPS_GetParent($id);
             $rooms[] = [
                 'id'     => $id,
                 'label'  => trim(($parent ? (string) @IPS_GetName($parent) . ' – ' : '') . (string) @IPS_GetName($id)),
-                'valueC' => $this->heatAutoReadNumber($id, 5, 45)
+                'valueC' => $this->heatAutoReadNumber($id, 5, 45),
+                'source' => $roomSource['mode']
             ];
         }
+        $sources = [
+            'rooms'    => ['mode' => $roomSource['mode'], 'ids' => $roomSource['ids']],
+            'humidity' => ['mode' => $humiditySource['mode'], 'ids' => $humiditySource['ids'], 'valueRH' => $humidity['rh'], 'dewPointC' => $humidity['dewC']]
+        ];
 
         $last = json_decode((string) $this->ReadAttributeString('HeatAutoLast'), true);
         $last = is_array($last) ? $last : [];
@@ -3063,7 +3298,8 @@ class HeishaMon extends IPSModule
             'config'            => $config,
             'configRevision'    => $this->heatAutoRevision(),
             'limits'            => $limits,
-            'rooms'             => $rooms
+            'rooms'             => $rooms,
+            'sources'           => $sources
         ];
     }
 
@@ -3103,7 +3339,7 @@ class HeishaMon extends IPSModule
                 }
                 continue;
             }
-            if ($field === 'roomVariableIDs') {
+            if ($field === 'roomVariableIDs' || $field === 'humidityVariableIDs') {
                 if (!is_array($value)) {
                     $fail($field, 'Value must be a list of variable IDs');
                     continue;
@@ -3116,7 +3352,7 @@ class HeishaMon extends IPSModule
                     }
                     $rows[] = ['Variable' => $id];
                 }
-                $changes['HeatAutoRooms'] = ['string', json_encode($rows)];
+                $changes[$field === 'roomVariableIDs' ? 'HeatAutoRooms' : 'HeatAutoHumidityVariables'] = ['string', json_encode($rows)];
                 continue;
             }
             $definition = self::HEATAUTO_CONFIG[$field] ?? null;

@@ -122,7 +122,13 @@ Alle 15 Minuten wird in dieser Reihenfolge entschieden:
 
 Rangfolge: **Frostschutz > Nutzer > Automatik.** Ändert jemand die Betriebsart von außen (z. B. im Dashboard), übernimmt die Automatik das, sendet keinen Gegenbefehl und beginnt die Sperrzeit neu; nur der Frostschutz greift sofort ein. Auto+Warmwasser statt Heizen+Warmwasser gilt als dieselbe Variante.
 
-**Kühlen** (optional) braucht eine Taupunkt- oder Feuchte-Variable der Raumluft: Es startet nur, wenn das tiefste Kühlziel der Kühlkurve mindestens den Sicherheitsabstand (2 K) über dem Taupunkt liegt, und stoppt sofort, wenn die gemessene Vorlauftemperatur darunter fällt. Die Kühlkurve selbst ändert das Modul nicht.
+**Quellen werden automatisch gesucht**, damit nichts von Hand eingestellt werden muss (eigene Auswahl überschreibt immer; die Statuszeilen im Formular zeigen 🔗 automatisch / ✏️ eigen / ℹ️ nichts gefunden):
+
+- **Außentemperatur:** der Fühler der Wärmepumpe, wahlweise eine eigene Variable.
+- **Feuchte:** alle frischen, plausiblen Variablen mit Feuchteprofil (`~Humidity*`) oder „Luftfeuchte/Humidity" im Namen, ohne Außen-, Boden- und Wetterwerte (ein ausdrücklicher „Innen"-Wert einer Wetterstation bleibt). Es zählt der **höchste** Wert, der Taupunkt wird mit der höchsten Raumtemperatur gerechnet (ohne bekannte Raumtemperatur mit 26 °C). Fehlgriffe gehen so nur auf die sichere Seite: Das Kühlen wird eher gesperrt als freigegeben.
+- **Räume:** ein Temperaturfühler je Raum der **Raumstruktur** (Wandfühler vor Heizkörper-Thermostat), ohne Außen-/unbeheizte Räume (Carport, Terrasse, Keller …), erst ab drei Räumen mit gültigem Wert, mit dem **Median** statt dem Mittelwert (ein Fühler neben einer Wärmequelle entscheidet nicht allein). Ohne Raumstruktur und ohne eigene Auswahl entscheidet nur die Außentemperatur.
+
+**Kühlen** (optional) braucht eine Taupunkt- oder Feuchte-Quelle der Raumluft (automatisch gefunden oder eigene): Es startet nur, wenn das tiefste Kühlziel der Kühlkurve mindestens den Sicherheitsabstand (2 K) über dem Taupunkt liegt, und stoppt sofort, wenn die gemessene Vorlauftemperatur darunter fällt. Die Kühlkurve selbst ändert das Modul nicht.
 
 Jeder Befehl wird nach ca. 45 s über die gemeldete Betriebsart kontrolliert und bis zu dreimal wiederholt (die Anlage quittiert Befehle nie). Die Variable `Heizungs-Automatik: Begründung` nennt im Klartext, warum gerade so entschieden wurde. Beim Ausschalten der Automatik wird ein abgeschalteter Heizbetrieb wiederhergestellt. Zustand und Einstellungen sind per `HEISHA_GetHeatingAutomation()` lesbar (inkl. Grenzen, Schrittweite, Einheit und Standardwert je Einstellung sowie einer `configRevision`), per `HEISHA_SetHeatingAutomation()` als Teil-Update änderbar: Rückgabe `ok`, Feldfehler in `errors`, die geltende `config` und die neue `configRevision`; wird eine veraltete Revision mitgeschickt, ändert sich nichts. Gedacht für den WP-Monitor des NRGDashboards.
 

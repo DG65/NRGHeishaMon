@@ -51,6 +51,67 @@ final class HeishaHeatingAutomation
         return ['mean' => $sum / $count, 'coverage' => $coverage];
     }
 
+    /** Mindestanzahl gueltiger Raeume, damit eine AUTOMATISCH gefundene Raumquelle verwendet wird. */
+    public const AUTO_ROOMS_MIN = 3;
+
+    /** Annahme fuer die Raumlufttemperatur beim Taupunkt, wenn keine Raumtemperatur bekannt ist (bewusst hoch = sicher). */
+    public const DEW_ASSUMED_ROOM_C = 26.0;
+
+    /** Namen, die auf Aussen-, Boden- oder unbeheizte Bereiche hindeuten (Variable, Geraet oder Raum). */
+    private const OUTDOOR_PATTERN = '/(au(ß|ss)en|outdoor|outside|boden|soil|rasen|garten|garden|regen|carport|garage|schuppen|terrasse|balkon|hof\b|keller|dachboden|spitzboden|pool|gew(ä|ae)chshaus|wetter)/iu';
+
+    private const HUMIDITY_PATTERN = '/(luftfeucht|feuchte|humidity)/iu';
+
+    private const TEMPERATURE_EXCLUDE_PATTERN = '/(soll|ziel|target|set\s?point|offset|ger(ä|ae)te|modul|tau|gef(ü|ue)hlt|vorlauf|r(ü|ue)cklauf|warmwasser|boden|au(ß|ss)en|outdoor|outside|vpd|limit|schutz|wasser|water)/iu';
+
+    /** true, wenn der Name auf Aussen-, Boden- oder unbeheizte Bereiche hindeutet. */
+    public static function looksOutdoorOrUnheated(string $name): bool
+    {
+        return (bool) preg_match(self::OUTDOOR_PATTERN, $name);
+    }
+
+    /** true, wenn der Name ausdruecklich einen Innenraum nennt (hebt eine Aussen-Einstufung des UEBERGEORDNETEN Geraets auf). */
+    public static function looksIndoor(string $name): bool
+    {
+        return (bool) preg_match('/(innen|indoor|inside)/iu', $name);
+    }
+
+    /** Humidity-Kandidat: Standardprofil ~Humidity* ODER Name mit "Luftfeuchte"/"Humidity". */
+    public static function looksLikeHumidity(string $name, string $profile): bool
+    {
+        return stripos($profile, '~Humidity') === 0 || (bool) preg_match(self::HUMIDITY_PATTERN, $name);
+    }
+
+    /**
+     * Eignung einer Variable als Raumtemperatur: 1 = Wandfuehler/Raumprofil (bevorzugt),
+     * 2 = allgemeiner Ist-Wert (z. B. Thermostat am Heizkoerper), null = ungeeignet.
+     */
+    public static function roomTemperatureRank(string $name, string $profile): ?int
+    {
+        if (preg_match(self::TEMPERATURE_EXCLUDE_PATTERN, $name)) {
+            return null;
+        }
+        if (stripos($profile, '~Temperature.Room') === 0 || preg_match('/(lufttemperatur|raumtemperatur|room\s?temp|air\s?temp|innentemperatur)/iu', $name)) {
+            return 1;
+        }
+        if (preg_match('/(isttemperatur|temperatur|temperature)/iu', $name) || stripos($profile, '~Temperature') === 0) {
+            return 2;
+        }
+        return null;
+    }
+
+    /** Median (robust gegen einzelne Ausreisser, z. B. einen Fuehler neben einer Waermequelle). */
+    public static function median(array $values): ?float
+    {
+        $values = array_values(array_map('floatval', $values));
+        if ($values === []) {
+            return null;
+        }
+        sort($values);
+        $n = count($values);
+        return $n % 2 === 1 ? $values[intdiv($n, 2)] : ($values[$n / 2 - 1] + $values[$n / 2]) / 2.0;
+    }
+
     /** Alte Stuetzstellen verwerfen (aelter als $keepHours) und aufsteigend halten. */
     public static function trim(array $samples, int $now, float $keepHours): array
     {
