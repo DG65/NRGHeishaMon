@@ -57,17 +57,47 @@ final class HeishaHeatingAutomation
     /** Annahme fuer die Raumlufttemperatur beim Taupunkt, wenn keine Raumtemperatur bekannt ist (bewusst hoch = sicher). */
     public const DEW_ASSUMED_ROOM_C = 26.0;
 
-    /** Namen, die auf Aussen-, Boden- oder unbeheizte Bereiche hindeuten (Variable, Geraet oder Raum). */
-    private const OUTDOOR_PATTERN = '/(au(ß|ss)en|outdoor|outside|boden|soil|rasen|garten|garden|regen|carport|garage|schuppen|terrasse|balkon|hof\b|keller|dachboden|spitzboden|pool|gew(ä|ae)chshaus|wetter)/iu';
+    /**
+     * Standard-Ausschlussliste (kommagetrennt, ohne Gross-/Kleinschreibung, Teilstring-Treffer): Namen von
+     * Variablen, Geraeten oder Raeumen, die auf Aussen-, Boden- oder unbeheizte Bereiche hindeuten. Der Nutzer
+     * kann sie im Formular anpassen (z. B. Wintergarten, Werkstatt).
+     */
+    public const DEFAULT_EXCLUDE_WORDS = 'aussen, outdoor, outside, boden, soil, rasen, garten, garden, regen, carport, garage, schuppen, terrasse, balkon, keller, dachboden, spitzboden, pool, gewaechshaus, wetter';
 
     private const HUMIDITY_PATTERN = '/(luftfeucht|feuchte|humidity)/iu';
 
     private const TEMPERATURE_EXCLUDE_PATTERN = '/(soll|ziel|target|set\s?point|offset|ger(ä|ae)te|modul|tau|gef(ü|ue)hlt|vorlauf|r(ü|ue)cklauf|warmwasser|boden|au(ß|ss)en|outdoor|outside|vpd|limit|schutz|wasser|water)/iu';
 
-    /** true, wenn der Name auf Aussen-, Boden- oder unbeheizte Bereiche hindeutet. */
-    public static function looksOutdoorOrUnheated(string $name): bool
+    /** Ausschlussliste "a, b; c" -> ['a','b','c'] (klein geschrieben, ohne Leereintraege, ss statt ß). */
+    public static function parseWords(string $list): array
     {
-        return (bool) preg_match(self::OUTDOOR_PATTERN, $name);
+        $words = [];
+        foreach (preg_split('/[,;\n]+/u', $list) ?: [] as $word) {
+            $word = self::normalizeText($word);
+            if ($word !== '') {
+                $words[] = $word;
+            }
+        }
+        return array_values(array_unique($words));
+    }
+
+    private static function normalizeText(string $text): string
+    {
+        $text = mb_strtolower(trim($text));
+        return str_replace(['ß', 'ä', 'ö', 'ü'], ['ss', 'ae', 'oe', 'ue'], $text);
+    }
+
+    /** true, wenn der Name eines der Ausschlussworte enthaelt (Aussen-, Boden- oder unbeheizter Bereich). */
+    public static function looksOutdoorOrUnheated(string $name, ?array $words = null): bool
+    {
+        $words ??= self::parseWords(self::DEFAULT_EXCLUDE_WORDS);
+        $name = self::normalizeText($name);
+        foreach ($words as $word) {
+            if ($word !== '' && strpos($name, $word) !== false) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** true, wenn der Name ausdruecklich einen Innenraum nennt (hebt eine Aussen-Einstufung des UEBERGEORDNETEN Geraets auf). */

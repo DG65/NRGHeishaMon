@@ -56,7 +56,7 @@ class HeishaMon extends IPSModule
         '1.35.0' => [
             'New: heating automation (optional, panel "Heating automation"). Switches only the room heating on and off - never the whole heat pump, hot water keeps running - from the outside temperature (short and long mean, hysteresis, lock time) and optionally your room temperatures. Frost protection always wins, missing data keeps the heating on. Off by default; it only acts once you switch the new variable "Heating automation" on, and switching it off restores the heating.',
             'New: optional cooling in the automation, only with a dew point (or humidity) source: it starts only if the lowest cooling target of the heating curve stays above the dew point plus a safety margin and stops at once when the flow temperature falls below it.',
-            'New: the automation finds its sources on its own - humidity sensors of the rooms (outdoor and soil moisture excluded, highest value counts) and one temperature sensor per room of the Raumstruktur module (outdoor and unheated rooms excluded, at least three rooms, median). Your own selection always overrides; status lines in the form show what applies.',
+            'New: the automation finds its sources on its own - humidity sensors of the rooms (outdoor and soil moisture excluded, highest value counts) and one temperature sensor per room of the Raumstruktur module (outdoor and unheated rooms excluded, at least three rooms, median). Your own selection always overrides; the exclusion list of room and sensor names can be edited in the form, and status lines show what applies.',
             'New: after every operating mode command the module reads the mode back and retries up to three times - the unit never acknowledges commands itself. If someone changes the operating mode from outside (e.g. in the dashboard), the automation accepts that and waits for the lock time; only frost protection acts immediately.'
         ]
     ];
@@ -2410,6 +2410,7 @@ class HeishaMon extends IPSModule
         'roomHystK'                => ['HeatAutoRoomHystK', 'float', 0.5, 5],
         'useRoom'                  => ['HeatAutoUseRoom', 'bool', null, null],
         'roomDelayHours'           => ['HeatAutoRoomDelayHours', 'float', 0, 12],
+        'excludeWords'             => ['HeatAutoExcludeWords', 'string', null, null],
         'coolingEnabled'           => ['HeatAutoCooling', 'bool', null, null],
         'coolRoomOnC'              => ['HeatAutoCoolRoomOnC', 'float', 20, 32],
         'coolOutsideMinC'          => ['HeatAutoCoolOutsideMinC', 'float', 10, 35],
@@ -2433,6 +2434,7 @@ class HeishaMon extends IPSModule
         $this->RegisterPropertyFloat('HeatAutoRoomHystK', 1.5);
         $this->RegisterPropertyBoolean('HeatAutoUseRoom', true);
         $this->RegisterPropertyFloat('HeatAutoRoomDelayHours', 2);
+        $this->RegisterPropertyString('HeatAutoExcludeWords', HeishaHeatingAutomation::DEFAULT_EXCLUDE_WORDS);
         $this->RegisterPropertyBoolean('HeatAutoCooling', false);
         $this->RegisterPropertyFloat('HeatAutoCoolRoomOnC', 25);
         $this->RegisterPropertyFloat('HeatAutoCoolOutsideMinC', 20);
@@ -2588,6 +2590,13 @@ class HeishaMon extends IPSModule
     private const RAUMSTRUKTUR_MODULE_GUID = '{CA700334-0982-F356-0617-6952868137E9}';
     private const HEATAUTO_DISCOVERY_TTL = 21600;
 
+    /** @return string[] Ausschlussworte aus dem Formular (Standardliste, wenn leer) */
+    private function heatAutoExcludeWords(): array
+    {
+        $words = HeishaHeatingAutomation::parseWords((string) $this->ReadPropertyString('HeatAutoExcludeWords'));
+        return $words === [] ? HeishaHeatingAutomation::parseWords(HeishaHeatingAutomation::DEFAULT_EXCLUDE_WORDS) : $words;
+    }
+
     private function heatAutoVariableProfile(int $variableID): string
     {
         $variable = IPS_GetVariable($variableID);
@@ -2602,7 +2611,8 @@ class HeishaMon extends IPSModule
     /** Aussen-/Bodenfeuchte u. ae. ausschliessen: eigener Name, sonst Namen der uebergeordneten Geraete (bis 3 Ebenen). */
     private function heatAutoLooksOutdoor(int $variableID, string $name): bool
     {
-        if (HeishaHeatingAutomation::looksOutdoorOrUnheated($name)) {
+        $words = $this->heatAutoExcludeWords();
+        if (HeishaHeatingAutomation::looksOutdoorOrUnheated($name, $words)) {
             return true;
         }
         if (HeishaHeatingAutomation::looksIndoor($name)) {
@@ -2617,7 +2627,7 @@ class HeishaMon extends IPSModule
             if ($parent === $this->InstanceID) {
                 return true;
             }
-            if (HeishaHeatingAutomation::looksOutdoorOrUnheated((string) @IPS_GetName($parent))) {
+            if (HeishaHeatingAutomation::looksOutdoorOrUnheated((string) @IPS_GetName($parent), $words)) {
                 return true;
             }
         }
@@ -2653,13 +2663,14 @@ class HeishaMon extends IPSModule
         if (is_array($cache) && isset($cache['at']) && time() - (int) $cache['at'] < self::HEATAUTO_DISCOVERY_TTL) {
             return array_map('intval', (array) ($cache['ids'] ?? []));
         }
+        $words = $this->heatAutoExcludeWords();
         $function = function_exists('RAUM_GetStructure') ? 'RAUM_GetStructure' : (function_exists('STRUKT_GetStructure') ? 'STRUKT_GetStructure' : '');
         $ids = [];
         if ($function !== '') {
             foreach (@IPS_GetInstanceListByModuleID(self::RAUMSTRUKTUR_MODULE_GUID) ?: [] as $structureID) {
                 $structure = json_decode((string) @$function($structureID), true);
                 foreach (is_array($structure) ? ($structure['rooms'] ?? []) : [] as $room) {
-                    if (HeishaHeatingAutomation::looksOutdoorOrUnheated((string) ($room['label'] ?? ''))) {
+                    if (HeishaHeatingAutomation::looksOutdoorOrUnheated((string) ($room['label'] ?? ''), $words)) {
                         continue;
                     }
                     $best = null;
@@ -3179,6 +3190,7 @@ class HeishaMon extends IPSModule
         'roomHystK'               => [0.5, 'K', 1.5],
         'useRoom'                 => [null, '', true],
         'roomDelayHours'          => [0.25, 'h', 2.0],
+        'excludeWords'            => [null, '', HeishaHeatingAutomation::DEFAULT_EXCLUDE_WORDS],
         'coolingEnabled'          => [null, '', false],
         'coolRoomOnC'             => [0.5, '°C', 25.0],
         'coolOutsideMinC'         => [0.5, '°C', 20.0],
@@ -3196,6 +3208,9 @@ class HeishaMon extends IPSModule
                     break;
                 case 'float':
                     $config[$field] = (float) $this->ReadPropertyFloat($property);
+                    break;
+                case 'string':
+                    $config[$field] = (string) $this->ReadPropertyString($property);
                     break;
                 default:
                     $config[$field] = (int) $this->ReadPropertyInteger($property);
@@ -3367,6 +3382,14 @@ class HeishaMon extends IPSModule
                     continue;
                 }
                 $changes[$property] = ['bool', $value];
+                continue;
+            }
+            if ($type === 'string') {
+                if (!is_string($value) || strlen($value) > 500) {
+                    $fail($field, 'Value must be text of at most 500 characters');
+                    continue;
+                }
+                $changes[$property] = ['string', trim($value)];
                 continue;
             }
             if (!is_int($value) && !($type === 'float' && is_float($value))) {

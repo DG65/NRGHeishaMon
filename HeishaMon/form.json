@@ -532,6 +532,11 @@
                                     "digits": 2
                                 }
                             ]
+                        },
+                        {
+                            "type": "ValidationTextBox",
+                            "name": "HeatAutoExcludeWords",
+                            "caption": "Exclude rooms and sensors whose name contains (comma separated)"
                         }
                     ]
                 },
