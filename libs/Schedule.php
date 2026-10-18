@@ -15,6 +15,9 @@ final class HeishaSchedule
 {
     public const GRANULARITY_MIN = 15;
 
+    /** Hoechstzahl Abschnitte je Kanal und Wochentag (der Editor zeigt sie im Get als maxSegmentsPerDay). */
+    public const MAX_SEGMENTS_PER_DAY = 8;
+
     /** Kanal => Anzeigename, Art, Wertebereich, Praefix/Modus der Anlage (shift) */
     public const CHANNELS = [
         'z1Heat' => ['label' => 'Zone 1 heating', 'kind' => 'shift', 'min' => -5, 'max' => 5, 'zone' => 'z1', 'mode' => 'heat'],
@@ -68,6 +71,7 @@ final class HeishaSchedule
             if (!is_array($data['segments'])) {
                 $errors[] = ['field' => $key . '.segments', 'message' => 'Value must be a list of segments'];
             } else {
+                //Fehlerpfade verweisen auf die Position in der EINGABE (der Editor markiert den betroffenen Balken)
                 $perDay = [];
                 foreach (array_values($data['segments']) as $index => $segment) {
                     $field = $key . '.segments[' . $index . ']';
@@ -76,33 +80,44 @@ final class HeishaSchedule
                         $errors[] = ['field' => $field, 'message' => 'A segment needs whole numbers day, from, to and value'];
                         continue;
                     }
+                    $valid = true;
                     if ($segment['day'] < 1 || $segment['day'] > 7) {
                         $errors[] = ['field' => $field . '.day', 'message' => 'The weekday must be 1 (Monday) to 7 (Sunday)'];
-                        continue;
+                        $valid = false;
                     }
-                    if ($segment['from'] < 0 || $segment['to'] > 1440 || $segment['from'] >= $segment['to']
-                        || $segment['from'] % self::GRANULARITY_MIN !== 0 || $segment['to'] % self::GRANULARITY_MIN !== 0) {
-                        $errors[] = ['field' => $field, 'message' => 'Times must lie between 0 and 1440 minutes in steps of 15, start before end'];
-                        continue;
+                    if ($segment['from'] < 0 || $segment['from'] % self::GRANULARITY_MIN !== 0) {
+                        $errors[] = ['field' => $field . '.from', 'message' => 'Times must lie between 0 and 1440 minutes in steps of 15, start before end'];
+                        $valid = false;
+                    }
+                    if ($segment['to'] > 1440 || $segment['to'] % self::GRANULARITY_MIN !== 0 || $segment['to'] <= $segment['from']) {
+                        $errors[] = ['field' => $field . '.to', 'message' => 'Times must lie between 0 and 1440 minutes in steps of 15, start before end'];
+                        $valid = false;
                     }
                     if ($segment['value'] < $min || $segment['value'] > $max) {
                         $errors[] = ['field' => $field . '.value', 'message' => 'Value is outside the allowed range'];
-                        continue;
+                        $valid = false;
                     }
-                    $perDay[$segment['day']][] = ['day' => $segment['day'], 'from' => $segment['from'], 'to' => $segment['to'], 'value' => $segment['value']];
+                    if ($valid) {
+                        $perDay[$segment['day']][] = ['day' => $segment['day'], 'from' => $segment['from'], 'to' => $segment['to'], 'value' => $segment['value'], 'idx' => $index];
+                    }
                 }
                 $normalized = [];
-                foreach ($perDay as $day => $list) {
+                foreach ($perDay as $list) {
                     usort($list, static fn ($a, $b) => $a['from'] <=> $b['from']);
+                    if (count($list) > self::MAX_SEGMENTS_PER_DAY) {
+                        $errors[] = ['field' => $key . '.segments[' . $list[self::MAX_SEGMENTS_PER_DAY]['idx'] . ']', 'message' => 'Too many segments for one weekday'];
+                    }
                     $previousEnd = 0;
                     foreach ($list as $segment) {
                         if ($segment['from'] < $previousEnd) {
-                            $errors[] = ['field' => $key . '.segments', 'message' => 'Segments of the same weekday must not overlap'];
-                            break;
+                            $errors[] = ['field' => $key . '.segments[' . $segment['idx'] . ']', 'message' => 'Segments of the same weekday must not overlap'];
                         }
-                        $previousEnd = $segment['to'];
+                        $previousEnd = max($previousEnd, $segment['to']);
                     }
-                    $normalized = array_merge($normalized, $list);
+                    foreach ($list as $segment) {
+                        unset($segment['idx']);
+                        $normalized[] = $segment;
+                    }
                 }
                 usort($normalized, static fn ($a, $b) => [$a['day'], $a['from']] <=> [$b['day'], $b['from']]);
                 $result['segments'] = $normalized;

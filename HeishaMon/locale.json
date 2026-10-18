@@ -574,7 +574,14 @@
             "A segment needs whole numbers day, from, to and value": "Ein Abschnitt braucht die ganzen Zahlen day, from, to und value",
             "The weekday must be 1 (Monday) to 7 (Sunday)": "Der Wochentag muss 1 (Montag) bis 7 (Sonntag) sein",
             "Times must lie between 0 and 1440 minutes in steps of 15, start before end": "Die Zeiten müssen zwischen 0 und 1440 Minuten in 15er-Schritten liegen, der Beginn vor dem Ende",
-            "Segments of the same weekday must not overlap": "Abschnitte desselben Wochentags dürfen sich nicht überlappen"
+            "Segments of the same weekday must not overlap": "Abschnitte desselben Wochentags dürfen sich nicht überlappen",
+            "Too many segments for one weekday": "Zu viele Abschnitte für einen Wochentag",
+            "This channel does not take part in the time schedule.": "Dieser Kanal nimmt nicht am Zeitplan teil.",
+            "The time schedule is in effect.": "Der Zeitplan wirkt.",
+            "Waiting for the heat pump to take over the planned value.": "Wartet darauf, dass die Wärmepumpe den geplanten Wert übernimmt.",
+            "The heat pump reports a different value (changed by hand or overwritten by board rules) - the schedule applies again at the next switching time.": "Die Wärmepumpe meldet einen anderen Wert (von Hand geändert oder durch Platinen-Regeln überschrieben) – der Zeitplan gilt ab der nächsten Schaltzeit wieder.",
+            "The heat pump does not take over the value.": "Die Wärmepumpe übernimmt den Wert nicht.",
+            "Not available: the heat pump reports no shift (absolute flow temperature) or the zone is not active.": "Nicht verfügbar: Die Wärmepumpe meldet keine Verschiebung (absolute Vorlauftemperatur) oder die Zone ist nicht aktiv."
         }
     }
 }

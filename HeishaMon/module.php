@@ -2123,6 +2123,8 @@ class HeishaMon extends IPSModule
      *            Ab contractVersion 1.14 additiv: Verschiebung (zones.zX.shift, boardRulesActive,
      *            HEISHA_SetHeatingCurveShift) und Bedienfunktionen (HEISHA_GetOperations/
      *            HEISHA_SetOperation).
+     *            Ab contractVersion 1.16 additiv: HEISHA_GetSchedule/HEISHA_SetSchedule (Wochen-Zeitplan fuer
+     *            Verschiebung und Fluesterstufe).
      *            Ab contractVersion 1.15 additiv: HEISHA_GetHeatingAutomation/HEISHA_SetHeatingAutomation
      *            (Heizungs-Automatik) sowie in zones.zX.shift.heat|cool die Felder minC, maxC und
      *            presets (eco/normal/comfort) fuer Regler und Schnellwahl.
@@ -2184,7 +2186,7 @@ class HeishaMon extends IPSModule
                 'internalHeaterStateID' => $this->idForIdent('Internal_Heater_State'),
                 'externalHeaterStateID' => $this->idForIdent('External_Heater_State'),
                 'forceHeaterStateID'   => $this->idForIdent('Force_Heater_State'),
-                'contractVersion'      => '1.15'
+                'contractVersion'      => '1.16'
             ]
         ];
     }
@@ -2974,6 +2976,7 @@ class HeishaMon extends IPSModule
 
     private const SCHED_TICK_MS = 60000;
     private const SCHED_MAX_TRIES = 3;
+    private const SCHED_MIN_WRITE_GAP = 300;
 
     private function registerSchedule()
     {
@@ -3046,15 +3049,43 @@ class HeishaMon extends IPSModule
 
     public function ScheduleTick()
     {
+        $this->scheduleProcess(time());
+    }
+
+    /**
+     * Ein Durchlauf des Zeitplans zum Zeitpunkt $now (getrennt von time(), damit Sommerzeit-Faelle testbar sind).
+     * Die Segmente sind Wanduhr-Zeit. Beim Zurueckstellen der Uhr (Herbst: die Stunde 02-03 kommt zweimal) wird der
+     * Sollwert bis zum Aufholen der Wanduhr gehalten, damit kein Schaltpunkt doppelt ausloest; beim Vorstellen
+     * (Fruehjahr: 02-03 faellt aus) ergibt sich der Sollwert fuer die neue Uhrzeit von selbst, die uebersprungene
+     * Schaltzeit ist damit nachgeholt.
+     */
+    private function scheduleProcess(int $now)
+    {
         if (!$this->ReadPropertyBoolean('SchedEnabled')) {
             return;
         }
-        $now = time();
         $plan = $this->schedulePlan();
         $runtime = json_decode((string) $this->ReadAttributeString('SchedRuntime'), true);
         $runtime = is_array($runtime) ? $runtime : [];
         $active = $this->scheduleIsActive();
         $sent = false;
+
+        $offset = (int) date('Z', $now);
+        $wall = (int) date('N', $now) * 1440 + (int) date('G', $now) * 60 + (int) date('i', $now);
+        $meta = $runtime['_meta'] ?? ['offset' => $offset, 'wall' => $wall, 'hold' => 0, 'holdSince' => 0];
+        if ($offset < (int) $meta['offset']) {
+            //Uhr wurde zurueckgestellt: bis zur zuletzt erreichten Wanduhrzeit nichts Neues planen
+            $meta['hold'] = max((int) $meta['hold'], (int) $meta['wall']);
+            $meta['holdSince'] = $now;
+        }
+        if ((int) $meta['hold'] > 0 && ($wall >= (int) $meta['hold'] || $now - (int) $meta['holdSince'] > 3 * 3600)) {
+            $meta['hold'] = 0;
+        }
+        $holding = (int) $meta['hold'] > 0;
+        $meta['offset'] = $offset;
+        $meta['wall'] = $wall;
+        $runtime['_meta'] = $meta;
+
         foreach (HeishaSchedule::CHANNELS as $key => $definition) {
             $channel = $plan['channels'][$key];
             $rec = $runtime[$key] ?? ['lastPlanned' => null, 'pending' => false, 'tries' => 0, 'lastSend' => 0, 'state' => 'off'];
@@ -3067,10 +3098,10 @@ class HeishaMon extends IPSModule
                 $runtime[$key] = ['lastPlanned' => null, 'pending' => false, 'tries' => 0, 'lastSend' => 0, 'state' => 'unavailable'];
                 continue;
             }
-            $planned = HeishaSchedule::plannedValue($channel, $now);
+            $planned = $holding && $rec['lastPlanned'] !== null ? (int) $rec['lastPlanned'] : HeishaSchedule::plannedValue($channel, $now);
             if ($rec['lastPlanned'] !== $planned) {
                 //neue Schaltzeit (oder erster Lauf): Sollwert gilt ab jetzt, ein vorheriger manueller Eingriff endet
-                $rec = ['lastPlanned' => $planned, 'pending' => true, 'tries' => 0, 'lastSend' => 0, 'state' => 'pending'];
+                $rec = ['lastPlanned' => $planned, 'pending' => true, 'tries' => 0, 'lastSend' => 0, 'state' => 'pending', 'lastNewSend' => (int) ($rec['lastNewSend'] ?? 0)];
             }
             if ($rec['pending']) {
                 if ($info['actual'] === $planned) {
@@ -3081,7 +3112,12 @@ class HeishaMon extends IPSModule
                     //die Anlage uebernimmt den Wert nicht: Stoerung bis zur naechsten Schaltzeit, kein Dauerfeuer
                     $rec['pending'] = false;
                     $rec['state'] = 'fault';
-                } elseif ($this->scheduleCanSend() && $now - (int) $rec['lastSend'] >= 30) {
+                } elseif ($this->scheduleCanSend() && $now - (int) $rec['lastSend'] >= 30
+                    && ($rec['tries'] > 0 || $now - (int) ($rec['lastNewSend'] ?? 0) >= self::SCHED_MIN_WRITE_GAP)) {
+                    //Flatter-Schutz: ein NEUER Wert frueher als SCHED_MIN_WRITE_GAP nach dem letzten neuen Wert wartet
+                    if ($rec['tries'] === 0) {
+                        $rec['lastNewSend'] = $now;
+                    }
                     $this->SendSetCommand($info['command'], (string) $planned);
                     $rec['tries']++;
                     $rec['lastSend'] = $now;
@@ -3112,6 +3148,30 @@ class HeishaMon extends IPSModule
                 $this->SetValue('Sched_Status', $text);
             }
         }
+    }
+
+    /** Klartext zum Kanalstatus (deutsch) fuer Editor und Status. */
+    private function scheduleStateReason(string $state, bool $scheduleActive, bool $channelEnabled): string
+    {
+        if (!$scheduleActive) {
+            return $this->Translate('The time schedule is switched off - the heat pump keeps its current settings.');
+        }
+        if (!$channelEnabled) {
+            return $this->Translate('This channel does not take part in the time schedule.');
+        }
+        switch ($state) {
+            case 'ok':
+                return $this->Translate('The time schedule is in effect.');
+            case 'pending':
+                return $this->Translate('Waiting for the heat pump to take over the planned value.');
+            case 'manual':
+                return $this->Translate('The heat pump reports a different value (changed by hand or overwritten by board rules) - the schedule applies again at the next switching time.');
+            case 'fault':
+                return $this->Translate('The heat pump does not take over the value.');
+            case 'unavailable':
+                return $this->Translate('Not available: the heat pump reports no shift (absolute flow temperature) or the zone is not active.');
+        }
+        return '';
     }
 
     private function scheduleValueText(string $key, int $value): string
@@ -3178,6 +3238,7 @@ class HeishaMon extends IPSModule
                 'max'           => $definition['max'],
                 'step'          => 1,
                 'unit'          => $definition['kind'] === 'shift' ? 'K' : '',
+                'maxSegmentsPerDay' => HeishaSchedule::MAX_SEGMENTS_PER_DAY,
                 'enabled'       => $channel['enabled'],
                 'default'       => $channel['default'],
                 'segments'      => $channel['segments'],
@@ -3186,6 +3247,7 @@ class HeishaMon extends IPSModule
                 'nextChangeAt'  => $info['available'] ? HeishaSchedule::nextChange($channel, $now) : 0,
                 'state'         => $active && $channel['enabled'] ? (string) ($runtime[$key]['state'] ?? 'pending') : 'off'
             ];
+            $entry['reason'] = $this->scheduleStateReason($entry['state'], $active, $channel['enabled']);
             if ($definition['kind'] === 'shift') {
                 $entry['presets'] = ['eco' => -5, 'normal' => 0, 'comfort' => 5];
             } else {
@@ -3240,17 +3302,17 @@ class HeishaMon extends IPSModule
         }
         foreach ((array) ($input['channels'] ?? []) as $key => $data) {
             if (!is_array($data)) {
-                $fail((string) $key, 'Value must be an object');
+                $fail('channels.' . $key, 'Value must be an object');
                 continue;
             }
             $current = $plan['channels'][$key] ?? null;
             if ($current === null) {
-                $fail((string) $key, 'Unknown channel');
+                $fail('channels.' . $key, 'Unknown channel');
                 continue;
             }
             [$normalized, $channelErrors] = HeishaSchedule::validateChannel((string) $key, array_merge($current, $data));
             foreach ($channelErrors as $error) {
-                $fail($error['field'], $error['message']);
+                $fail('channels.' . $error['field'], $error['message']);
             }
             if ($normalized !== null) {
                 $plan['channels'][$key] = $normalized;
