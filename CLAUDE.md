@@ -42,7 +42,7 @@ Reihenfolge von oben: (1) **🆕 Neu in Version X.Y** — aufgeklappt, pro Versi
 
 **Layout-Qualität:** logische Gruppierung (Doku vor Funktionsfeldern, Zusammengehöriges in einem Panel), Step-by-Step ohne Scroll-Zickzack (keine Sprünge zwischen Kernfeldern und Nebenpanels), Feldkanten auf einer Linie statt kreuz und quer.
 
-Der Forum-Hinweis verlinkt den echten HeishaMon-Thread (`community.symcon.de/t/modul-heishamon-panasonic-aquarea-waermepumpe-in-ip-symcon/143993`, seit 1.28.0), dazu kommt als letztes Panel „🧡 Über dieses Modul" (Lizenz/Spenden, nicht ausblendbar).
+Der Forum-Hinweis verlinkt den echten HeishaMon-Thread (`community.symcon.de/t/modul-nrg-stack-heishamon-panasonic-aquarea-waermepumpe-in-ip-symcon/143993`, seit 1.28.0), dazu kommt als letztes Panel „🧡 Über dieses Modul" (Lizenz/Spenden, nicht ausblendbar).
 
 **Feld-Tooltips:** Symcon kennt keine nativen Mouseover-Tooltips (form.json/Listenspalten haben kein `tooltip`-Attribut). Für erklärungsbedürftige Einzelfelder ein `PopupButton` direkt daneben in einem `RowLayout` — kurze, immer sichtbare Erklärungen bleiben als `Label`.
 

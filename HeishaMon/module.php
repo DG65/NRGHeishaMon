@@ -62,7 +62,7 @@ class HeishaMon extends IPSModule
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
     //ein Platzhalter auf die allgemeine Modul-Kategorie.
-    private const FORUM_URL = 'https://community.symcon.de/t/modul-heishamon-panasonic-aquarea-waermepumpe-in-ip-symcon/143993';
+    private const FORUM_URL = 'https://community.symcon.de/t/modul-nrg-stack-heishamon-panasonic-aquarea-waermepumpe-in-ip-symcon/143993';
 
     //Wortlaut/Struktur verbundweit identisch ("Variante A"), SUITE.md "Einheitliche
     //Formular-Optik" Punkt 5. LICENSE_URL zeigt auf `beta`, nicht `main` - main traegt noch
