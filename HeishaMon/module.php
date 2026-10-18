@@ -2518,6 +2518,7 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeString('HeatAutoLastError', '');
         $this->RegisterAttributeString('HeatAutoPriceRing', '[]');
         $this->RegisterAttributeInteger('HeatAutoBlockStart', 0);
+        $this->RegisterAttributeString('HeatAutoBlockLog', '[]');
         $this->RegisterAttributeInteger('HeatAutoPreBlockSince', 0);
         $this->RegisterAttributeString('HeatAutoBlocksDay', '');
         $this->RegisterAttributeInteger('HeatAutoBlocksToday', 0);
@@ -3042,6 +3043,32 @@ class HeishaMon extends IPSModule
         return HeishaHeatingAutomation::batteryCovers($this->heatAutoBatterySoc(), (float) $this->ReadPropertyFloat('HeatAutoBatteryReservePct'), $capacity, $loadKw * $hours);
     }
 
+    /**
+     * Protokoll der Preis-Sperren (14 Tage, hoechstens 60 Fenster) fuer GetHeatingAutomation()['price']['blockWindows']:
+     * EMS fuehrt sie als Sondereffekt (affects=load), damit die Lastprognose die gesperrte Last nicht als Normalfall lernt.
+     */
+    private function heatAutoBlockLog(int $now, ?string $action = null): array
+    {
+        $log = json_decode((string) $this->ReadAttributeString('HeatAutoBlockLog'), true);
+        $log = is_array($log) ? $log : [];
+        if ($action === 'open') {
+            $log[] = ['from' => $now, 'to' => 0];
+        } elseif ($action === 'close') {
+            for ($i = count($log) - 1; $i >= 0; $i--) {
+                if ((int) $log[$i]['to'] === 0) {
+                    $log[$i]['to'] = $now;
+                    break;
+                }
+            }
+        }
+        $log = array_values(array_filter($log, static fn ($w) => (int) $w['to'] === 0 || (int) $w['to'] >= $now - 14 * 86400));
+        $log = array_slice($log, -60);
+        if ($action !== null) {
+            $this->WriteAttributeString('HeatAutoBlockLog', json_encode($log));
+        }
+        return $log;
+    }
+
     /** Anzahl der heute begonnenen Preis-Sperren (setzt sich mit dem Tageswechsel zurueck). */
     private function heatAutoBlocksToday(int $now): int
     {
@@ -3083,6 +3110,9 @@ class HeishaMon extends IPSModule
         $actualMode = $this->heatAutoActualMode();
         if ($actualMode !== null && $this->heatAutoStateFromMode($actualMode) !== $this->heatAutoModeState($state)
             && (int) $this->ReadAttributeInteger('HeatAutoTries') === 0 && !$this->ReadAttributeBoolean('HeatAutoFault')) {
+            if ($state === 'blocked') {
+                $this->heatAutoBlockLog($now, 'close');
+            }
             $this->LogMessage(sprintf('Heating automation: operating mode changed from outside (%s -> %s), waiting for the lock time', $state, $this->heatAutoStateFromMode($actualMode)), KL_MESSAGE);
             $state = $this->heatAutoStateFromMode($actualMode);
             $since = $now;
@@ -3164,7 +3194,9 @@ class HeishaMon extends IPSModule
                 $this->WriteAttributeInteger('HeatAutoBlockStart', $now);
                 $this->WriteAttributeInteger('HeatAutoPreBlockSince', $sinceBefore);
                 $this->WriteAttributeInteger('HeatAutoBlocksToday', $blocksToday + 1);
+                $this->heatAutoBlockLog($now, 'open');
             } elseif ($state === 'blocked') {
+                $this->heatAutoBlockLog($now, 'close');
                 $pre = (int) $this->ReadAttributeInteger('HeatAutoPreBlockSince');
                 if ($pre > 0) {
                     $since = $pre;
@@ -3273,6 +3305,9 @@ class HeishaMon extends IPSModule
     private function heatAutoRestore()
     {
         $state = (string) $this->ReadAttributeString('HeatAutoState');
+        if ($state === 'blocked') {
+            $this->heatAutoBlockLog(time(), 'close');
+        }
         $this->WriteAttributeString('HeatAutoState', '');
         $this->WriteAttributeInteger('HeatAutoTries', 0);
         $this->WriteAttributeBoolean('HeatAutoFault', false);
@@ -3419,6 +3454,7 @@ class HeishaMon extends IPSModule
             'expensive'        => $price['expensive'],
             'blocksToday'      => (string) $this->ReadAttributeString('HeatAutoBlocksDay') === date('Y-m-d') ? (int) $this->ReadAttributeInteger('HeatAutoBlocksToday') : 0,
             'blockedSince'     => $state === 'blocked' ? (int) $this->ReadAttributeInteger('HeatAutoBlockStart') : 0,
+            'blockWindows'     => $this->heatAutoBlockLog(time()),
             'batteryCoversLoad' => $enabled ? $this->heatAutoBatteryCovers() : false
         ];
     }
