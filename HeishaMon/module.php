@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../libs/HeishaMonTopics.php';
 require_once __DIR__ . '/../libs/HeatingAutomation.php';
+require_once __DIR__ . '/../libs/Schedule.php';
 
 /**
  * HeishaMon
@@ -72,6 +73,9 @@ class HeishaMon extends IPSModule
         ],
         '1.38.0' => [
             'New: the shift of the heating and cooling request (the "-5 to +5 K" setting, i.e. ECO and comfort) now reports its limits and presets - ECO -5, normal 0, comfort +5 - so a dashboard can offer quick buttons and a slider without numbers of its own. The module version reports interface version 1.15.'
+        ],
+        '1.39.0' => [
+            'New: weekly time schedule for ECO / normal / comfort (the shift of the heating and cooling request, zone 1 and zone 2, heating and cooling) and for the quiet mode level (optional, panel "Time schedule for ECO / comfort and quiet mode"). The heat pump cannot store such a schedule, so the module runs it: it sends a value only when the planned value changes, reads it back, repeats it up to three times, and leaves a value you changed by hand alone until the next switching time. The graphical editor is in the heat pump monitor of the NRGDashboard. Off by default; a channel takes part only when you enable it in the schedule.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -171,6 +175,7 @@ class HeishaMon extends IPSModule
 
         //Heizungs-Automatik (nur Heizbetrieb ein/aus, optional Kuehlen mit Taupunkt-Schutz)
         $this->registerHeatingAutomation();
+        $this->registerSchedule();
 
         $this->RegisterVariableBoolean('Reachable', $this->Translate('Reachable'), $this->reachablePresentation(), 0);
     }
@@ -304,6 +309,12 @@ class HeishaMon extends IPSModule
             $element['color'] = $heatAutoColor;
         });
 
+        $schedLine = $this->ReadPropertyBoolean('SchedEnabled')
+            ? '🗓️ ' . (string) ($this->GetIDForIdent('Sched_Status') !== false ? GetValue(@$this->GetIDForIdent('Sched_Status')) : '')
+            : $this->Translate('ℹ️ The time schedule is not used. Enable it above.');
+        $this->patchFormElement($form['elements'], 'SchedStatus', function (&$element) use ($schedLine) {
+            $element['caption'] = $schedLine;
+        });
         $priceLine = $this->heatAutoPriceStatusLine();
         $batteryLine = $this->heatAutoBatteryStatusLine();
         $this->patchFormElement($form['elements'], 'HeatAutoPriceStatus', function (&$element) use ($priceLine) {
@@ -754,6 +765,7 @@ class HeishaMon extends IPSModule
         $this->SetTimerInterval('RebootWatchdog', $watchdogActive ? 60000 : 0);
 
         $this->maintainHeatingAutomation();
+        $this->maintainSchedule();
 
         $this->SendDebug('VariableList', (string) $this->ReadPropertyString('VariableList'), 0);
 
@@ -2250,6 +2262,13 @@ class HeishaMon extends IPSModule
             $this->SendSetCommand('SetSmartGridMode', strval(intval($Value)));
             return;
         }
+        if ($Ident === 'Sched_Active') {
+            $this->SetValue($Ident, boolval($Value));
+            //Einschalten wendet den Sollwert fuer jetzt sofort an, Ausschalten laesst die Anlage unveraendert
+            $this->WriteAttributeString('SchedRuntime', '{}');
+            $this->ScheduleTick();
+            return;
+        }
         if ($Ident === 'HeatAuto_Active') {
             $this->SetValue($Ident, boolval($Value));
             if (boolval($Value)) {
@@ -2946,6 +2965,334 @@ class HeishaMon extends IPSModule
     private static function heatAutoMinutes(int $since, int $now): int
     {
         return $since > 0 ? intdiv(max(0, $now - $since), 60) : 0;
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Wochen-Zeitplan fuer Verschiebung (ECO/Normal/Komfort) und Fluesterstufe. Die Anlage kann keinen solchen Plan
+    // aufnehmen, das Modul fuehrt ihn aus. Pruefung und Sollwerte: libs/Schedule.php
+    // ---------------------------------------------------------------------------------------
+
+    private const SCHED_TICK_MS = 60000;
+    private const SCHED_MAX_TRIES = 3;
+
+    private function registerSchedule()
+    {
+        $this->RegisterPropertyBoolean('SchedEnabled', false);
+        $this->RegisterPropertyString('SchedData', json_encode(HeishaSchedule::emptyPlan()));
+        //Laufzeitzustand je Kanal: letzter Sollwert, offener Befehl, Versuche, Status
+        $this->RegisterAttributeString('SchedRuntime', '{}');
+        $this->RegisterAttributeString('SchedLastError', '');
+        $this->RegisterTimer('SchedTick', 0, 'HEISHA_ScheduleTick($_IPS[\'TARGET\']);');
+    }
+
+    private function maintainSchedule()
+    {
+        $enabled = $this->ReadPropertyBoolean('SchedEnabled');
+        if (!$enabled) {
+            $this->SetTimerInterval('SchedTick', 0);
+            $this->MaintainVariable('Sched_Active', $this->Translate('Time schedule'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 275, false);
+            $this->MaintainVariable('Sched_Status', $this->Translate('Time schedule: status'), VARIABLETYPE_STRING, [], 276, false);
+            return;
+        }
+        $this->MaintainVariable('Sched_Active', $this->Translate('Time schedule'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 275, true);
+        $this->EnableAction('Sched_Active');
+        $this->MaintainVariable('Sched_Status', $this->Translate('Time schedule: status'), VARIABLETYPE_STRING, ['PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION], 276, true);
+        $this->SetTimerInterval('SchedTick', self::SCHED_TICK_MS);
+    }
+
+    private function scheduleIsActive(): bool
+    {
+        $id = @$this->GetIDForIdent('Sched_Active');
+        return $id !== false && (bool) GetValue($id);
+    }
+
+    /** Gespeicherter Plan, fehlende Kanaele/Felder aufgefuellt. */
+    private function schedulePlan(): array
+    {
+        $stored = json_decode((string) $this->ReadPropertyString('SchedData'), true);
+        $plan = HeishaSchedule::emptyPlan();
+        foreach (is_array($stored) ? ($stored['channels'] ?? []) : [] as $key => $channel) {
+            if (isset($plan['channels'][$key]) && is_array($channel)) {
+                [$normalized] = HeishaSchedule::validateChannel((string) $key, $channel);
+                if ($normalized !== null) {
+                    $plan['channels'][$key] = $normalized + $plan['channels'][$key];
+                }
+            }
+        }
+        return $plan;
+    }
+
+    /** Verfuegbarkeit, Istwert und Befehl eines Kanals. */
+    private function scheduleChannelInfo(string $key): array
+    {
+        $definition = HeishaSchedule::CHANNELS[$key];
+        if ($definition['kind'] === 'level') {
+            $id = $this->idForIdent('Quiet_Mode_Level');
+            $value = $id === 0 ? null : (int) GetValue($id);
+            return ['available' => $id !== 0, 'actual' => ($value !== null && $value >= 0) ? $value : null, 'command' => 'SetQuietMode'];
+        }
+        $prefix = $definition['zone'] === 'z1' ? 'Z1' : 'Z2';
+        $modeName = $definition['mode'] === 'heat' ? 'Heat' : 'Cool';
+        $shift = $this->readShift($prefix, $modeName);
+        $available = $this->isCurveZoneActive($definition['zone']) && $shift['mode'] === 'shift';
+        return ['available' => $available, 'actual' => $available ? $shift['valueC'] : null, 'command' => 'Set' . $prefix . $modeName . 'RequestTemperature'];
+    }
+
+    private function scheduleCanSend(): bool
+    {
+        $reachableID = $this->idForIdent('Reachable');
+        return (string) $this->ReadPropertyString('MQTTTopic') !== '' && $this->HasActiveParent() && ($reachableID === 0 || (bool) GetValue($reachableID));
+    }
+
+    public function ScheduleTick()
+    {
+        if (!$this->ReadPropertyBoolean('SchedEnabled')) {
+            return;
+        }
+        $now = time();
+        $plan = $this->schedulePlan();
+        $runtime = json_decode((string) $this->ReadAttributeString('SchedRuntime'), true);
+        $runtime = is_array($runtime) ? $runtime : [];
+        $active = $this->scheduleIsActive();
+        $sent = false;
+        foreach (HeishaSchedule::CHANNELS as $key => $definition) {
+            $channel = $plan['channels'][$key];
+            $rec = $runtime[$key] ?? ['lastPlanned' => null, 'pending' => false, 'tries' => 0, 'lastSend' => 0, 'state' => 'off'];
+            if (!$active || !$channel['enabled']) {
+                $runtime[$key] = ['lastPlanned' => null, 'pending' => false, 'tries' => 0, 'lastSend' => 0, 'state' => 'off'];
+                continue;
+            }
+            $info = $this->scheduleChannelInfo($key);
+            if (!$info['available']) {
+                $runtime[$key] = ['lastPlanned' => null, 'pending' => false, 'tries' => 0, 'lastSend' => 0, 'state' => 'unavailable'];
+                continue;
+            }
+            $planned = HeishaSchedule::plannedValue($channel, $now);
+            if ($rec['lastPlanned'] !== $planned) {
+                //neue Schaltzeit (oder erster Lauf): Sollwert gilt ab jetzt, ein vorheriger manueller Eingriff endet
+                $rec = ['lastPlanned' => $planned, 'pending' => true, 'tries' => 0, 'lastSend' => 0, 'state' => 'pending'];
+            }
+            if ($rec['pending']) {
+                if ($info['actual'] === $planned) {
+                    $rec['pending'] = false;
+                    $rec['tries'] = 0;
+                    $rec['state'] = 'ok';
+                } elseif ($rec['tries'] >= self::SCHED_MAX_TRIES) {
+                    //die Anlage uebernimmt den Wert nicht: Stoerung bis zur naechsten Schaltzeit, kein Dauerfeuer
+                    $rec['pending'] = false;
+                    $rec['state'] = 'fault';
+                } elseif ($this->scheduleCanSend() && $now - (int) $rec['lastSend'] >= 30) {
+                    $this->SendSetCommand($info['command'], (string) $planned);
+                    $rec['tries']++;
+                    $rec['lastSend'] = $now;
+                    $rec['state'] = 'pending';
+                    $sent = true;
+                    if ($info['actual'] === null) {
+                        //Istwert nie empfangen: nicht pruefbar, einmal senden genuegt
+                        $rec['pending'] = false;
+                        $rec['state'] = 'ok';
+                    }
+                }
+            } elseif ($rec['state'] !== 'fault') {
+                $rec['state'] = $info['actual'] === $planned || $info['actual'] === null ? 'ok' : 'manual';
+            }
+            $runtime[$key] = $rec;
+        }
+        $this->WriteAttributeString('SchedRuntime', json_encode($runtime));
+        if ($sent) {
+            //Kontrolle ueber den gemeldeten Wert (die Anlage quittiert nie), im Takt der Pruefung
+            $this->SetTimerInterval('SchedTick', 45000);
+        } else {
+            $this->SetTimerInterval('SchedTick', self::SCHED_TICK_MS);
+        }
+        $statusID = @$this->GetIDForIdent('Sched_Status');
+        if ($statusID !== false) {
+            $text = $this->scheduleStatusText($plan, $runtime, $active, $now);
+            if (GetValue($statusID) !== $text) {
+                $this->SetValue('Sched_Status', $text);
+            }
+        }
+    }
+
+    private function scheduleValueText(string $key, int $value): string
+    {
+        if (HeishaSchedule::CHANNELS[$key]['kind'] === 'level') {
+            return $value === 0 ? $this->Translate('Off') : sprintf($this->Translate('Level %d'), $value);
+        }
+        if ($value === -5) {
+            return $this->Translate('ECO') . ' (-5 K)';
+        }
+        if ($value === 5) {
+            return $this->Translate('Comfort') . ' (+5 K)';
+        }
+        return $value === 0 ? $this->Translate('Normal') . ' (0 K)' : sprintf('%+d K', $value);
+    }
+
+    private function scheduleStatusText(array $plan, array $runtime, bool $active, int $now): string
+    {
+        if (!$active) {
+            return $this->Translate('The time schedule is switched off - the heat pump keeps its current settings.');
+        }
+        $parts = [];
+        foreach (HeishaSchedule::CHANNELS as $key => $definition) {
+            if (!$plan['channels'][$key]['enabled']) {
+                continue;
+            }
+            $state = (string) ($runtime[$key]['state'] ?? 'off');
+            if ($state === 'unavailable') {
+                $parts[] = $this->Translate($definition['label']) . ': ' . $this->Translate('not available');
+                continue;
+            }
+            $text = $this->Translate($definition['label']) . ': ' . $this->scheduleValueText($key, HeishaSchedule::plannedValue($plan['channels'][$key], $now));
+            if ($state === 'manual') {
+                $text .= ' (' . $this->Translate('changed manually, until the next switching time') . ')';
+            } elseif ($state === 'fault') {
+                $text .= ' ⚠️ ' . $this->Translate('the heat pump does not take over the value');
+            }
+            $parts[] = $text;
+        }
+        return $parts === [] ? $this->Translate('No channel takes part in the time schedule yet.') : implode(' | ', $parts);
+    }
+
+    /**
+     * Wochen-Zeitplan lesen (Vertrag heatpump, ab contractVersion 1.16). Zeiten sind die lokale Zeit des IPS-Servers.
+     * Je Kanal: Verfuegbarkeit, Grenzen, Plan (Abschnitte), Sollwert/Istwert jetzt, naechste Schaltzeit, Status.
+     */
+    public function GetSchedule(): array
+    {
+        $now = time();
+        $plan = $this->schedulePlan();
+        $runtime = json_decode((string) $this->ReadAttributeString('SchedRuntime'), true);
+        $runtime = is_array($runtime) ? $runtime : [];
+        $enabled = $this->ReadPropertyBoolean('SchedEnabled');
+        $active = $enabled && $this->scheduleIsActive();
+        $channels = [];
+        foreach (HeishaSchedule::CHANNELS as $key => $definition) {
+            $channel = $plan['channels'][$key];
+            $info = $this->scheduleChannelInfo($key);
+            $entry = [
+                'label'         => $this->Translate($definition['label']),
+                'kind'          => $definition['kind'],
+                'available'     => $info['available'],
+                'min'           => $definition['min'],
+                'max'           => $definition['max'],
+                'step'          => 1,
+                'unit'          => $definition['kind'] === 'shift' ? 'K' : '',
+                'enabled'       => $channel['enabled'],
+                'default'       => $channel['default'],
+                'segments'      => $channel['segments'],
+                'plannedNow'    => $info['available'] ? HeishaSchedule::plannedValue($channel, $now) : null,
+                'actualNow'     => $info['actual'],
+                'nextChangeAt'  => $info['available'] ? HeishaSchedule::nextChange($channel, $now) : 0,
+                'state'         => $active && $channel['enabled'] ? (string) ($runtime[$key]['state'] ?? 'pending') : 'off'
+            ];
+            if ($definition['kind'] === 'shift') {
+                $entry['presets'] = ['eco' => -5, 'normal' => 0, 'comfort' => 5];
+            } else {
+                $entry['labels'] = [0 => $this->Translate('Off'), 1 => sprintf($this->Translate('Level %d'), 1), 2 => sprintf($this->Translate('Level %d'), 2), 3 => sprintf($this->Translate('Level %d'), 3)];
+            }
+            $channels[$key] = $entry;
+        }
+        $rulesID = $this->idForIdent('Stats_RulesActive');
+        $quietScheduleID = $this->idForIdent('Quiet_Mode_Schedule');
+        $lastError = (string) $this->ReadAttributeString('SchedLastError');
+        return [
+            'featureEnabled'          => $enabled,
+            'enabled'                 => $active,
+            'now'                     => $now,
+            'granularityMin'          => HeishaSchedule::GRANULARITY_MIN,
+            'revision'                => HeishaSchedule::revision($plan),
+            'lastError'               => $lastError === '' ? null : $lastError,
+            'boardRulesActive'        => $rulesID === 0 ? null : ((int) GetValue($rulesID)) > 0,
+            'unitQuietScheduleActive' => $quietScheduleID === 0 ? null : (bool) GetValue($quietScheduleID),
+            'channels'                => $channels
+        ];
+    }
+
+    /**
+     * Wochen-Zeitplan aendern. $Json: {"revision": int?, "enabled": bool?, "featureEnabled": bool?, "channels": {kanal:
+     * {"enabled": bool?, "default": int?, "segments": [{"day","from","to","value"}]?}}}. Teil-Update je Kanal (segments
+     * ersetzt die ganze Liste des Kanals); bei jedem Fehler oder abweichender revision wird nichts geaendert.
+     * Rueckgabe: ['ok', 'errors' => [['field','message']], 'schedule' => GetSchedule(), 'revision'].
+     */
+    public function SetSchedule(string $Json): array
+    {
+        $errors = [];
+        $fail = function (string $field, string $message) use (&$errors) {
+            $errors[] = ['field' => $field, 'message' => $this->Translate($message)];
+        };
+        $input = json_decode($Json, true);
+        if (!is_array($input) || $input === []) {
+            $fail('', 'Expected a JSON object with at least one field');
+            return $this->scheduleSetResult($errors);
+        }
+        $plan = $this->schedulePlan();
+        if (array_key_exists('revision', $input)) {
+            if (!is_int($input['revision']) || $input['revision'] !== HeishaSchedule::revision($plan)) {
+                $fail('revision', 'The time schedule was changed in the meantime - please reload it');
+            }
+            unset($input['revision']);
+        }
+        foreach (['enabled', 'featureEnabled'] as $flag) {
+            if (array_key_exists($flag, $input) && !is_bool($input[$flag])) {
+                $fail($flag, 'Value must be true or false');
+            }
+        }
+        foreach ((array) ($input['channels'] ?? []) as $key => $data) {
+            if (!is_array($data)) {
+                $fail((string) $key, 'Value must be an object');
+                continue;
+            }
+            $current = $plan['channels'][$key] ?? null;
+            if ($current === null) {
+                $fail((string) $key, 'Unknown channel');
+                continue;
+            }
+            [$normalized, $channelErrors] = HeishaSchedule::validateChannel((string) $key, array_merge($current, $data));
+            foreach ($channelErrors as $error) {
+                $fail($error['field'], $error['message']);
+            }
+            if ($normalized !== null) {
+                $plan['channels'][$key] = $normalized;
+            }
+        }
+        foreach (array_diff(array_keys($input), ['enabled', 'featureEnabled', 'channels']) as $unknown) {
+            $fail((string) $unknown, 'Unknown field');
+        }
+        if ($errors !== []) {
+            return $this->scheduleSetResult($errors);
+        }
+
+        $changed = false;
+        if (json_encode($plan) !== json_encode($this->schedulePlan())) {
+            IPS_SetProperty($this->InstanceID, 'SchedData', json_encode($plan));
+            $changed = true;
+        }
+        if (array_key_exists('featureEnabled', $input) && $input['featureEnabled'] !== $this->ReadPropertyBoolean('SchedEnabled')) {
+            IPS_SetProperty($this->InstanceID, 'SchedEnabled', $input['featureEnabled']);
+            $changed = true;
+        }
+        if ($changed) {
+            IPS_ApplyChanges($this->InstanceID);
+        }
+        $featureNow = array_key_exists('featureEnabled', $input) ? $input['featureEnabled'] : $this->ReadPropertyBoolean('SchedEnabled');
+        if (array_key_exists('enabled', $input) && $featureNow) {
+            $this->RequestAction('Sched_Active', $input['enabled']);
+        } elseif ($changed && $featureNow && $this->scheduleIsActive()) {
+            //geaenderter Plan gilt sofort fuer jetzt
+            $this->ScheduleTick();
+        }
+        return $this->scheduleSetResult([]);
+    }
+
+    private function scheduleSetResult(array $errors): array
+    {
+        $this->WriteAttributeString('SchedLastError', implode('; ', array_map(
+            fn ($e) => ($e['field'] !== '' ? $e['field'] . ': ' : '') . $e['message'],
+            $errors
+        )));
+        $schedule = $this->GetSchedule();
+        return ['ok' => $errors === [], 'errors' => $errors, 'schedule' => $schedule, 'revision' => $schedule['revision']];
     }
 
     private const TIBBERGR_MODULE_GUID = '{E92F62F4-88A6-4C6E-9F0D-E76C3B1C9A01}';

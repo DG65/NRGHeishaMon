@@ -36,6 +36,10 @@
                 },
                 {
                     "type": "Label",
+                    "caption": "🗓️ Time schedule: Switches ECO / normal / comfort (the shift of the heating and cooling request, zone 1 and 2) and the quiet mode level by weekday and time of day. The schedule is edited in the heat pump monitor of the NRGDashboard; the module executes it, reads the values back and respects manual changes until the next switching time."
+                },
+                {
+                    "type": "Label",
                     "caption": "💡 Energy saving check: Assesses the settings received from the unit (DHW target, reheat delta, backup heater enables, heating-off threshold, heating curve, pump duty) and the real cycling behavior (runtime per compressor start) against reference values from the documented HeishaMon example rulesets and the Panasonic service manual. Display only - nothing is changed automatically."
                 },
                 {
@@ -768,6 +772,45 @@
                             ]
                         }
                     ]
+                }
+            ]
+        },
+        {
+            "type": "ExpansionPanel",
+            "caption": "🗓️ Time schedule for ECO / comfort and quiet mode (optional)",
+            "items": [
+                {
+                    "type": "Label",
+                    "caption": "Switches the shift of the heating and cooling request (ECO -5 K, normal 0, comfort +5 K, for zone 1 and zone 2) and the quiet mode level by the time of day and weekday. The heat pump cannot store such a schedule itself, so the module runs it. The schedule is edited graphically in the heat pump monitor of the NRGDashboard. The module sends a value only when the planned value changes; if you change a value by hand, that stays until the next switching time. A channel takes part only when you enable it in the schedule, so nothing else writing the same value is disturbed."
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "CheckBox",
+                            "name": "SchedEnabled",
+                            "caption": "Use the time schedule"
+                        },
+                        {
+                            "type": "PopupButton",
+                            "caption": "What should I know about the time schedule?",
+                            "width": "430px",
+                            "popup": {
+                                "caption": "What should I know about the time schedule?",
+                                "items": [
+                                    {
+                                        "type": "Label",
+                                        "caption": "Times are the local time of the Symcon server, in 15 minute steps. Gaps between the segments of a channel use the channel's default value. Switching the schedule on applies the planned value for the current time at once. The shift only works while the heat pump reports a shift (-5 to +5 K) and not an absolute flow temperature; the board rules of the optional short-cycle guard can overwrite it. The quiet mode of the heat pump has a schedule of its own (set at the remote control): do not use both for the same purpose. The heat pump never acknowledges commands, so the module reads the value back after about 45 seconds and repeats the command up to three times before it reports a fault. If you switch the schedule off, the heat pump keeps its current values."
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "Label",
+                    "name": "SchedStatus",
+                    "caption": "SCHEDSTATUS"
                 }
             ]
         },

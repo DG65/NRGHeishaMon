@@ -134,6 +134,17 @@ Rangfolge: **Frostschutz > Nutzer > Automatik.** Ändert jemand die Betriebsart 
 
 Jeder Befehl wird nach ca. 45 s über die gemeldete Betriebsart kontrolliert und bis zu dreimal wiederholt (die Anlage quittiert Befehle nie). Die Variable `Heizungs-Automatik: Begründung` nennt im Klartext, warum gerade so entschieden wurde. Beim Ausschalten der Automatik wird ein abgeschalteter Heizbetrieb wiederhergestellt. Zustand und Einstellungen sind per `HEISHA_GetHeatingAutomation()` lesbar (inkl. Grenzen, Schrittweite, Einheit und Standardwert je Einstellung sowie einer `configRevision`), per `HEISHA_SetHeatingAutomation()` als Teil-Update änderbar: Rückgabe `ok`, Feldfehler in `errors`, die geltende `config` und die neue `configRevision`; wird eine veraltete Revision mitgeschickt, ändert sich nichts. Gedacht für den WP-Monitor des NRGDashboards.
 
+## Zeitplan für ECO / Komfort und Flüsterbetrieb (optional)
+
+Ein Wochenplan, der nach Wochentag und Uhrzeit die **Verschiebung der Heiz- und Kühlanforderung** (ECO −5 K, Normal 0, Komfort +5 K; Zone 1 und Zone 2, Heizen und Kühlen) und die **Stufe des Flüsterbetriebs** (Aus, Stufe 1…3) setzt. Die Wärmepumpe kann so einen Plan nicht selbst speichern (HeishaMon schreibt nur Werte), deshalb führt das Modul ihn aus. Bearbeitet wird er grafisch im Wärmepumpen-Monitor des NRGDashboards; im Formular schaltet man die Funktion nur ein und sieht den aktuellen Stand.
+
+- **Aufbau:** je Kanal (Zone 1/2 × Heizen/Kühlen, Flüsterbetrieb) Abschnitte mit Wochentag, Beginn, Ende (15-Minuten-Raster) und Wert; dazwischen gilt der Vorgabewert des Kanals. Zeiten sind die lokale Zeit des Symcon-Servers.
+- **Ab Werk aus,** und ein Kanal nimmt nur teil, wenn er im Plan eingeschaltet ist. So schreibt nie ein zweiter Regler denselben Wert (z. B. ein alter Wochenplan für den Flüsterbetrieb).
+- **Schonend:** ein Befehl geht nur raus, wenn sich der Sollwert ändert; nach ca. 45 s wird der gemeldete Wert kontrolliert und der Befehl höchstens dreimal wiederholt, danach steht eine Störung im Status.
+- **Von Hand geändert** (z. B. im Dashboard): bleibt bis zur nächsten Schaltzeit stehen.
+- **Einschränkungen:** Die Verschiebung gilt nur, solange die Anlage eine Verschiebung meldet (nicht im Direktmodus), und das optionale Taktschutz-Regelwerk der Platine kann sie überschreiben. Die anlageneigene Flüster-Zeitschaltung (an der Fernbedienung) nicht parallel für denselben Zweck nutzen.
+- Für Skripte und andere Module: `HEISHA_GetSchedule()` / `HEISHA_SetSchedule()` (Teil-Update je Kanal, Prüfung im Modul, optimistische Sperre über `revision`).
+
 ## Energiespar-Prüfung
 
 Der Bereich **💡 Energiespar-Prüfung** in der Instanz-Konfiguration bewertet die von der Anlage empfangenen Einstellwerte anhand von Richtwerten aus den dokumentierten [HeishaMon-Beispielregelwerken](https://github.com/heishamon/HeishaMon/tree/main/Examples/Rules) und dem Panasonic-Servicehandbuch: Taktverhalten (mittlere Laufzeit je Verdichterstart), Warmwasser-Sollwert und -Nachheizdelta, Heizstab-Freigabetemperatur und -Verzögerung, Heizgrenze, Heizkurven-Sollwert und Pumpenansteuerung. Die Prüfung ist **reine Anzeige** — es wird nichts verändert. Die bewerteten Werte sind Service-Einstellungen der Wärmepumpe: Änderungen bewusst vornehmen, im Zweifel mit dem Fachbetrieb.
