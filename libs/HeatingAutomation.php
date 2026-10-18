@@ -18,7 +18,13 @@ final class HeishaHeatingAutomation
     /** Kuehlen endet, wenn das Aussen-Mittel um diesen Wert unter die Kuehl-Schwelle faellt. */
     public const COOL_OUTSIDE_HYSTERESIS_K = 2.0;
 
-    public const STATES = ['heating', 'cooling', 'off'];
+    public const STATES = ['heating', 'cooling', 'off', 'blocked'];
+
+    /** Ohne Raumfuehler: Preis-Sperre nur, wenn das Aussenmittel mindestens so weit ueber der Frostschwelle liegt (K). */
+    public const PRICE_OUTSIDE_RESERVE_K = 5.0;
+
+    /** Mindestabdeckung der Referenz (Stunden), damit eine Preislage beurteilt wird. */
+    public const PRICE_MIN_SPAN_HOURS = 12;
 
     /**
      * Mittelwert der Stuetzstellen [[ts, wert], ...] im Fenster der letzten $hours Stunden.
@@ -142,6 +148,104 @@ final class HeishaHeatingAutomation
         return $n % 2 === 1 ? $values[intdiv($n, 2)] : ($values[$n / 2 - 1] + $values[$n / 2]) / 2.0;
     }
 
+    /**
+     * Preislage aus Zeit-Slots [['start'=>ts,'end'=>ts,'price'=>ct/kWh], ...] (Vertrag TIBBERGR_/SPOT_GetPriceCurve).
+     * Referenz = alle Slots, die in den naechsten 24 h noch laufen (Kurve) bzw. der gesamte uebergebene Verlauf
+     * (Historie einer Preisvariable). "Teuer" ab max(Median + $minSpreadCt, 85. Perzentil), beide nach Dauer
+     * gewichtet. Liefert expensive=null, wenn die Referenz kuerzer als PRICE_MIN_SPAN_HOURS ist oder der
+     * aktuelle Slot fehlt - dann wird nie gesperrt.
+     *
+     * @return array{expensive: ?bool, price: ?float, threshold: ?float, median: ?float, until: int}
+     */
+    public static function priceState(array $slots, int $now, float $minSpreadCt, bool $futureOnly = true): array
+    {
+        $result = ['expensive' => null, 'price' => null, 'threshold' => null, 'median' => null, 'until' => 0];
+        $reference = [];
+        $span = 0;
+        foreach ($slots as $slot) {
+            $start = (int) ($slot['start'] ?? 0);
+            $end = (int) ($slot['end'] ?? 0);
+            if ($end <= $start || !isset($slot['price']) || !is_numeric($slot['price'])) {
+                continue;
+            }
+            if ($futureOnly && ($end <= $now || $start >= $now + 86400)) {
+                continue;
+            }
+            $reference[] = ['start' => $start, 'end' => $end, 'price' => (float) $slot['price']];
+            $span += $end - $start;
+        }
+        if ($reference === [] || $span < self::PRICE_MIN_SPAN_HOURS * 3600) {
+            return $result;
+        }
+        usort($reference, static fn ($a, $b) => $a['price'] <=> $b['price']);
+        $quantile = static function (float $q) use ($reference, $span): float {
+            $target = $span * $q;
+            $sum = 0;
+            foreach ($reference as $slot) {
+                $sum += $slot['end'] - $slot['start'];
+                if ($sum >= $target) {
+                    return $slot['price'];
+                }
+            }
+            return $reference[count($reference) - 1]['price'];
+        };
+        $median = $quantile(0.5);
+        $threshold = max($median + $minSpreadCt, $quantile(0.85));
+        $result['median'] = $median;
+        $result['threshold'] = $threshold;
+        $current = null;
+        foreach ($reference as $slot) {
+            if ($slot['start'] <= $now && $slot['end'] > $now) {
+                $current = $slot;
+                break;
+            }
+        }
+        if ($current === null) {
+            return $result;
+        }
+        $result['price'] = $current['price'];
+        $result['expensive'] = $current['price'] >= $threshold;
+        if ($result['expensive']) {
+            //Ende des zusammenhaengenden teuren Bereichs (Slots lueckenlos aneinander)
+            $byStart = [];
+            foreach ($reference as $slot) {
+                $byStart[$slot['start']] = $slot;
+            }
+            $until = $current['end'];
+            while (isset($byStart[$until]) && $byStart[$until]['price'] >= $threshold) {
+                $until = $byStart[$until]['end'];
+            }
+            $result['until'] = $until;
+        }
+        return $result;
+    }
+
+    /** Verlauf einer Preisvariable [[ts, preis], ...] als Slots (jeder Wert gilt bis zum naechsten, letzter 15 min). */
+    public static function slotsFromHistory(array $samples): array
+    {
+        usort($samples, static fn ($a, $b) => (int) $a[0] <=> (int) $b[0]);
+        $slots = [];
+        $count = count($samples);
+        for ($i = 0; $i < $count; $i++) {
+            $start = (int) $samples[$i][0];
+            $end = $i + 1 < $count ? min((int) $samples[$i + 1][0], $start + 3600) : $start + 900;
+            if ($end > $start) {
+                $slots[] = ['start' => $start, 'end' => $end, 'price' => (float) $samples[$i][1]];
+            }
+        }
+        return $slots;
+    }
+
+    /** Reicht die nutzbare Batterieenergie fuer die erwartete Waermepumpen-Energie? (5 % Wandlungsverlust, 30 % Sicherheit) */
+    public static function batteryCovers(?float $socPercent, float $reservePercent, float $capacityKwh, float $expectedKwh): bool
+    {
+        if ($socPercent === null || $capacityKwh <= 0) {
+            return false;
+        }
+        $usable = max(0.0, ($socPercent - $reservePercent) / 100.0) * $capacityKwh * 0.95;
+        return $usable >= $expectedKwh * 1.3;
+    }
+
     /** Alte Stuetzstellen verwerfen (aelter als $keepHours) und aufsteigend halten. */
     public static function trim(array $samples, int $now, float $keepHours): array
     {
@@ -217,6 +321,30 @@ final class HeishaHeatingAutomation
             return self::result('off', 'dew_stop', [], true);
         }
 
+        //3b) Preis-Sperre (dynamischer Tarif): laufende Sperre beenden oder fortsetzen. Frostschutz stand
+        //schon oben davor und beendet jede Sperre.
+        $priceOn = !empty($cfg['priceBlock']);
+        $comfortOk = $roomMean !== null
+            ? $roomMean >= (float) $cfg['roomMinC'] + (float) ($cfg['priceRoomReserveK'] ?? 1.0)
+            : $mShort >= $frostC + self::PRICE_OUTSIDE_RESERVE_K;
+        if ($cur === 'blocked') {
+            $endReason = null;
+            if (!$priceOn || ($in['priceExpensive'] ?? null) !== true) {
+                $endReason = 'price_end';
+            } elseif ((int) ($in['priceBlockedMin'] ?? 0) >= (int) ($cfg['priceBlockMaxMin'] ?? 120)) {
+                $endReason = 'price_limit';
+            } elseif (!$comfortOk) {
+                $endReason = 'price_comfort';
+            } elseif (!empty($in['batteryCovers'])) {
+                $endReason = 'price_battery';
+            }
+            if ($endReason === null) {
+                return self::result('blocked', 'price_block', ['blockedMin' => (int) ($in['priceBlockedMin'] ?? 0)], false);
+            }
+            //Sperre endet: zurueck auf Heizen, die Sperrzeit gilt dafuer nicht
+            return self::result('heating', $endReason, [], true);
+        }
+
         //4) Heizentscheidung (Kuehlen zaehlt hier als "aus")
         $base = $cur === 'heating' ? 'heating' : 'off';
         $onBelow = (float) $cfg['onBelowC'];
@@ -277,19 +405,28 @@ final class HeishaHeatingAutomation
         }
 
         //6) Sperrzeit: Aenderungen erst nach der Mindestdauer des aktuellen Zustands
+        $holdResult = null;
         if ($want !== $cur) {
             $needed = $cur === 'heating' ? $minHold : $onHold;
             if ($hours < $needed) {
-                return self::result($cur, 'hold', [
+                $holdResult = self::result($cur, 'hold', [
                     'wanted' => $want,
                     'remaining' => $needed - $hours,
                 ], false);
             }
         }
+        $finalState = $holdResult['state'] ?? $want;
         if ($reason === 'hysteresis') {
             $reason = 'keep_' . $cur;
         }
-        return self::result($want, $reason, $params, false);
+
+        //7) Preis-Sperre starten: nur aus laufendem Heizbetrieb, nur in den teuersten Stunden, wenn die Raeume
+        //Reserve haben, die Tageszahl nicht erreicht ist und die Batterie die Last nicht ohnehin traegt
+        if ($priceOn && $cur === 'heating' && $finalState === 'heating' && ($in['priceExpensive'] ?? null) === true
+            && (int) ($in['priceBlocksToday'] ?? 0) < (int) ($cfg['priceBlocksPerDay'] ?? 2) && $comfortOk && empty($in['batteryCovers'])) {
+            return self::result('blocked', 'price_start', [], false);
+        }
+        return $holdResult ?? self::result($want, $reason, $params, false);
     }
 
     private static function result(string $state, string $reason, array $params, bool $forced): array

@@ -62,6 +62,10 @@ class HeishaMon extends IPSModule
         '1.35.1' => [
             'Fix: after a restart of Symcon the measured-COP variables (COP measured, heat energy today, energy consumption today, performance factor today) could be deleted when MeterHub was not instantiated yet at that moment. The module now waits until Symcon is fully started before deciding about them and only then picks up the MeterHub meter.',
             'Fix: the on/off displays of boolean values (e.g. Online/Offline) used a color key that only enumerations know. Symcon 9.1 refused to create the instance because of it. Existing variables are converted automatically.'
+        ],
+        '1.36.0' => [
+            'New: price block for dynamic electricity tariffs (optional, in the "Heating automation" panel). In the most expensive hours of the day the automation can pause the room heating (hot water is not touched), so the heat pump does not run exactly then. The price curve is found automatically (Tibber Grid Rewards, Börsenpreis) or taken from your own price variable. A block only starts when the rooms have a reserve, the daily number of blocks is not reached and frost protection is not active; it ends when the price drops, after the maximum duration or when the rooms get too cold.',
+            'New: if you enter the usable capacity of your battery, no block happens while the battery (state of charge from InverterHub or your own variable, above its reserve) can carry the heat pump through the expensive hours anyway.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -294,6 +298,14 @@ class HeishaMon extends IPSModule
             $element['color'] = $heatAutoColor;
         });
 
+        $priceLine = $this->heatAutoPriceStatusLine();
+        $batteryLine = $this->heatAutoBatteryStatusLine();
+        $this->patchFormElement($form['elements'], 'HeatAutoPriceStatus', function (&$element) use ($priceLine) {
+            $element['caption'] = $priceLine;
+        });
+        $this->patchFormElement($form['elements'], 'HeatAutoBatteryStatus', function (&$element) use ($batteryLine) {
+            $element['caption'] = $batteryLine;
+        });
         [$roomsLine, $humidityLine] = $this->heatAutoSourceStatusLines();
         $this->patchFormElement($form['elements'], 'HeatAutoRoomsStatus', function (&$element) use ($roomsLine) {
             $element['caption'] = $roomsLine;
@@ -2439,6 +2451,16 @@ class HeishaMon extends IPSModule
         'useRoom'                  => ['HeatAutoUseRoom', 'bool', null, null],
         'roomDelayHours'           => ['HeatAutoRoomDelayHours', 'float', 0, 12],
         'excludeWords'             => ['HeatAutoExcludeWords', 'string', null, null],
+        'priceBlockEnabled'        => ['HeatAutoPriceBlock', 'bool', null, null],
+        'priceBlockMaxHours'       => ['HeatAutoPriceBlockMaxHours', 'int', 1, 4],
+        'priceBlocksPerDay'        => ['HeatAutoPriceBlocksPerDay', 'int', 1, 3],
+        'priceMinSpreadCt'         => ['HeatAutoPriceMinSpreadCt', 'float', 1, 30],
+        'priceRoomReserveK'        => ['HeatAutoPriceRoomReserveK', 'float', 0, 5],
+        'priceVariableID'          => ['HeatAutoPriceVariable', 'int', 0, null],
+        'batteryCapacityKwh'       => ['HeatAutoBatteryCapacityKwh', 'float', 0, 200],
+        'batteryReservePct'        => ['HeatAutoBatteryReservePct', 'float', 0, 90],
+        'batterySocVariableID'     => ['HeatAutoBatterySocVariable', 'int', 0, null],
+        'batteryLoadKw'            => ['HeatAutoBatteryLoadKw', 'float', 0.2, 10],
         'coolingEnabled'           => ['HeatAutoCooling', 'bool', null, null],
         'coolRoomOnC'              => ['HeatAutoCoolRoomOnC', 'float', 20, 32],
         'coolOutsideMinC'          => ['HeatAutoCoolOutsideMinC', 'float', 10, 35],
@@ -2463,6 +2485,16 @@ class HeishaMon extends IPSModule
         $this->RegisterPropertyBoolean('HeatAutoUseRoom', true);
         $this->RegisterPropertyFloat('HeatAutoRoomDelayHours', 2);
         $this->RegisterPropertyString('HeatAutoExcludeWords', HeishaHeatingAutomation::DEFAULT_EXCLUDE_WORDS);
+        $this->RegisterPropertyBoolean('HeatAutoPriceBlock', false);
+        $this->RegisterPropertyInteger('HeatAutoPriceBlockMaxHours', 2);
+        $this->RegisterPropertyInteger('HeatAutoPriceBlocksPerDay', 2);
+        $this->RegisterPropertyFloat('HeatAutoPriceMinSpreadCt', 5);
+        $this->RegisterPropertyFloat('HeatAutoPriceRoomReserveK', 1);
+        $this->RegisterPropertyInteger('HeatAutoPriceVariable', 0);
+        $this->RegisterPropertyFloat('HeatAutoBatteryCapacityKwh', 0);
+        $this->RegisterPropertyFloat('HeatAutoBatteryReservePct', 20);
+        $this->RegisterPropertyInteger('HeatAutoBatterySocVariable', 0);
+        $this->RegisterPropertyFloat('HeatAutoBatteryLoadKw', 1);
         $this->RegisterPropertyBoolean('HeatAutoCooling', false);
         $this->RegisterPropertyFloat('HeatAutoCoolRoomOnC', 25);
         $this->RegisterPropertyFloat('HeatAutoCoolOutsideMinC', 20);
@@ -2484,6 +2516,11 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeBoolean('HeatAutoFault', false);
         $this->RegisterAttributeString('HeatAutoLast', '{}');
         $this->RegisterAttributeString('HeatAutoLastError', '');
+        $this->RegisterAttributeString('HeatAutoPriceRing', '[]');
+        $this->RegisterAttributeInteger('HeatAutoBlockStart', 0);
+        $this->RegisterAttributeInteger('HeatAutoPreBlockSince', 0);
+        $this->RegisterAttributeString('HeatAutoBlocksDay', '');
+        $this->RegisterAttributeInteger('HeatAutoBlocksToday', 0);
         $this->RegisterAttributeString('HeatAutoHumidityCache', '{}');
         $this->RegisterAttributeString('HeatAutoRoomCache', '{}');
         $this->RegisterTimer('HeatAutoTick', 0, 'HEISHA_HeatingAutomationTick($_IPS[\'TARGET\']);');
@@ -2511,7 +2548,7 @@ class HeishaMon extends IPSModule
         $this->MaintainVariable('HeatAuto_Active', $this->Translate('Heating automation'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 270, true);
         $this->EnableAction('HeatAuto_Active');
         $options = [];
-        foreach ([0 => 'Heating off (hot water only)', 1 => 'Heating', 2 => 'Cooling'] as $value => $caption) {
+        foreach ([0 => 'Heating off (hot water only)', 1 => 'Heating', 2 => 'Cooling', 3 => 'Heating blocked (high price)'] as $value => $caption) {
             $options[] = ['Value' => $value, 'Caption' => $this->Translate($caption), 'IconActive' => false, 'IconValue' => '', 'Color' => -1];
         }
         $this->MaintainVariable('HeatAuto_State', $this->Translate('Heating automation: state'), VARIABLETYPE_INTEGER, [
@@ -2551,7 +2588,11 @@ class HeishaMon extends IPSModule
             //Kuehlen nur im Modus "Heizen+WW": Auto+WW entscheidet die Anlage selbst
             'coolEnabled'     => $this->ReadPropertyBoolean('HeatAutoCooling') && (int) $this->ReadPropertyInteger('HeatAutoHeatMode') === 4,
             'coolRoomOnC'     => (float) $this->ReadPropertyFloat('HeatAutoCoolRoomOnC'),
-            'coolOutsideMinC' => (float) $this->ReadPropertyFloat('HeatAutoCoolOutsideMinC')
+            'coolOutsideMinC' => (float) $this->ReadPropertyFloat('HeatAutoCoolOutsideMinC'),
+            'priceBlock'         => $this->ReadPropertyBoolean('HeatAutoPriceBlock'),
+            'priceBlockMaxMin'   => (int) $this->ReadPropertyInteger('HeatAutoPriceBlockMaxHours') * 60,
+            'priceBlocksPerDay'  => (int) $this->ReadPropertyInteger('HeatAutoPriceBlocksPerDay'),
+            'priceRoomReserveK'  => (float) $this->ReadPropertyFloat('HeatAutoPriceRoomReserveK')
         ];
     }
 
@@ -2560,7 +2601,7 @@ class HeishaMon extends IPSModule
         if ($state === 'cooling') {
             return self::HEATAUTO_MODE_COOLING;
         }
-        if ($state === 'off') {
+        if ($state === 'off' || $state === 'blocked') {
             return self::HEATAUTO_MODE_OFF;
         }
         return (int) $this->ReadPropertyInteger('HeatAutoHeatMode');
@@ -2575,6 +2616,12 @@ class HeishaMon extends IPSModule
         }
         $value = (int) GetValue($id);
         return $value >= 0 ? $value : null;
+    }
+
+    /** Die Preis-Sperre schaltet dieselbe Betriebsart wie "aus" (nur Warmwasser) - fuer Vergleiche mit der gemeldeten Betriebsart. */
+    private function heatAutoModeState(string $state): string
+    {
+        return $state === 'blocked' ? 'off' : $state;
     }
 
     private function heatAutoStateFromMode(?int $mode): string
@@ -2890,6 +2937,123 @@ class HeishaMon extends IPSModule
         return $since > 0 ? intdiv(max(0, $now - $since), 60) : 0;
     }
 
+    private const TIBBERGR_MODULE_GUID = '{E92F62F4-88A6-4C6E-9F0D-E76C3B1C9A01}';
+    private const BOERSENPREIS_MODULE_GUID = '{11BBF147-16A1-4332-82A3-29BB31154D03}';
+    private const INVERTERHUB_MODULE_GUID = '{BBE2C593-1A91-426D-A714-29A9C7E87589}';
+
+    /**
+     * Preiskurve aus dem Verbund (Vertrag TIBBERGR_/SPOT_GetPriceCurve: Slots mit start, end, price in ct/kWh):
+     * Tibber Grid Rewards (Endkundenpreis) vor Boersenpreis. Nur lesend; die Module cachen selbst.
+     *
+     * @return array{mode: string, slots: array}
+     */
+    private function heatAutoPriceCurve(): array
+    {
+        foreach ([['tibber', 'TIBBERGR_GetPriceCurve', self::TIBBERGR_MODULE_GUID], ['spot', 'SPOT_GetPriceCurve', self::BOERSENPREIS_MODULE_GUID]] as [$mode, $function, $guid]) {
+            if (!function_exists($function)) {
+                continue;
+            }
+            foreach (@IPS_GetInstanceListByModuleID($guid) ?: [] as $instanceID) {
+                try {
+                    $curve = $function($instanceID);
+                } catch (Throwable $e) {
+                    continue;
+                }
+                if (is_array($curve) && $curve !== []) {
+                    return ['mode' => $mode, 'slots' => $curve];
+                }
+            }
+        }
+        return ['mode' => 'none', 'slots' => []];
+    }
+
+    /** Eigene Preisvariable (ct/kWh, aktueller Preis): Verlauf fuer die Preislage mitschreiben (7 Tage). */
+    private function heatAutoSamplePrice(int $now)
+    {
+        $variableID = (int) $this->ReadPropertyInteger('HeatAutoPriceVariable');
+        if ($variableID <= 0 || !$this->ReadPropertyBoolean('HeatAutoPriceBlock')) {
+            return;
+        }
+        $ring = json_decode((string) $this->ReadAttributeString('HeatAutoPriceRing'), true);
+        $ring = is_array($ring) ? $ring : [];
+        $value = $this->heatAutoReadNumber($variableID, -1000, 5000);
+        $last = $ring === [] ? 0 : (int) end($ring)[0];
+        if ($value !== null && $now - $last >= 600) {
+            $ring[] = [$now, round($value, 3)];
+        }
+        $this->WriteAttributeString('HeatAutoPriceRing', json_encode(HeishaHeatingAutomation::trim($ring, $now, 7 * 24)));
+    }
+
+    /** @return array{mode: string, expensive: ?bool, price: ?float, threshold: ?float, median: ?float, until: int} */
+    private function heatAutoPrice(int $now): array
+    {
+        $spread = (float) $this->ReadPropertyFloat('HeatAutoPriceMinSpreadCt');
+        if ((int) $this->ReadPropertyInteger('HeatAutoPriceVariable') > 0) {
+            $ring = json_decode((string) $this->ReadAttributeString('HeatAutoPriceRing'), true);
+            $ring = is_array($ring) ? $ring : [];
+            //Ohne mindestens einen Tag Verlauf ist die Preislage nicht beurteilbar
+            if ($ring === [] || $now - (int) $ring[0][0] < 86400) {
+                return ['mode' => 'variable', 'expensive' => null, 'price' => null, 'threshold' => null, 'median' => null, 'until' => 0];
+            }
+            return ['mode' => 'variable'] + HeishaHeatingAutomation::priceState(HeishaHeatingAutomation::slotsFromHistory($ring), $now, $spread, false);
+        }
+        $curve = $this->heatAutoPriceCurve();
+        if ($curve['mode'] === 'none') {
+            return ['mode' => 'none', 'expensive' => null, 'price' => null, 'threshold' => null, 'median' => null, 'until' => 0];
+        }
+        return ['mode' => $curve['mode']] + HeishaHeatingAutomation::priceState($curve['slots'], $now, $spread);
+    }
+
+    private function heatAutoBatterySoc(): ?float
+    {
+        $own = (int) $this->ReadPropertyInteger('HeatAutoBatterySocVariable');
+        if ($own > 0) {
+            return $this->heatAutoReadNumber($own, 0, 100);
+        }
+        if (!function_exists('IHUB_GetFunctions')) {
+            return null;
+        }
+        foreach (@IPS_GetInstanceListByModuleID(self::INVERTERHUB_MODULE_GUID) ?: [] as $instanceID) {
+            try {
+                $functions = IHUB_GetFunctions($instanceID);
+            } catch (Throwable $e) {
+                continue;
+            }
+            $entry = is_array($functions) && isset($functions['socID']) ? $functions : (is_array($functions) ? ($functions[0] ?? []) : []);
+            $soc = $this->heatAutoReadNumber((int) ($entry['socID'] ?? 0), 0, 100);
+            if ($soc !== null) {
+                return $soc;
+            }
+        }
+        return null;
+    }
+
+    /** Traegt die Batterie die Waermepumpe waehrend einer Sperre ohnehin? Nur mit eingetragener Kapazitaet. */
+    private function heatAutoBatteryCovers(): bool
+    {
+        $capacity = (float) $this->ReadPropertyFloat('HeatAutoBatteryCapacityKwh');
+        if ($capacity <= 0) {
+            return false;
+        }
+        $powerID = $this->idForIdent('Power_Total');
+        $measuredKw = $powerID === 0 ? 0.0 : max(0.0, (float) GetValue($powerID)) / 1000.0;
+        $loadKw = max((float) $this->ReadPropertyFloat('HeatAutoBatteryLoadKw'), $measuredKw);
+        $hours = (int) $this->ReadPropertyInteger('HeatAutoPriceBlockMaxHours');
+        return HeishaHeatingAutomation::batteryCovers($this->heatAutoBatterySoc(), (float) $this->ReadPropertyFloat('HeatAutoBatteryReservePct'), $capacity, $loadKw * $hours);
+    }
+
+    /** Anzahl der heute begonnenen Preis-Sperren (setzt sich mit dem Tageswechsel zurueck). */
+    private function heatAutoBlocksToday(int $now): int
+    {
+        $day = date('Y-m-d', $now);
+        if ((string) $this->ReadAttributeString('HeatAutoBlocksDay') !== $day) {
+            $this->WriteAttributeString('HeatAutoBlocksDay', $day);
+            $this->WriteAttributeInteger('HeatAutoBlocksToday', 0);
+            return 0;
+        }
+        return (int) $this->ReadAttributeInteger('HeatAutoBlocksToday');
+    }
+
     public function HeatingAutomationTick()
     {
         if (!$this->ReadPropertyBoolean('HeatAutoEnabled')) {
@@ -2897,6 +3061,7 @@ class HeishaMon extends IPSModule
         }
         $now = time();
         $this->heatAutoSample($now);
+        $this->heatAutoSamplePrice($now);
         if (!$this->heatAutoIsActive()) {
             $this->heatAutoPublish('', 'inactive', [], []);
             return;
@@ -2916,7 +3081,7 @@ class HeishaMon extends IPSModule
         //es laeuft kein eigener Befehl mehr), gilt der neue Zustand und die Sperrzeit beginnt neu
         $manual = false;
         $actualMode = $this->heatAutoActualMode();
-        if ($actualMode !== null && $this->heatAutoStateFromMode($actualMode) !== $state
+        if ($actualMode !== null && $this->heatAutoStateFromMode($actualMode) !== $this->heatAutoModeState($state)
             && (int) $this->ReadAttributeInteger('HeatAutoTries') === 0 && !$this->ReadAttributeBoolean('HeatAutoFault')) {
             $this->LogMessage(sprintf('Heating automation: operating mode changed from outside (%s -> %s), waiting for the lock time', $state, $this->heatAutoStateFromMode($actualMode)), KL_MESSAGE);
             $state = $this->heatAutoStateFromMode($actualMode);
@@ -2941,6 +3106,11 @@ class HeishaMon extends IPSModule
         $hotSince = $this->heatAutoCounter('HeatAutoHotSince', $roomMean !== null && $roomMean > $cfg['coolRoomOnC'], $now);
         $dew = $cfg['coolEnabled'] ? $this->heatAutoDew($rooms['max'], $state) : ['dewC' => null, 'ok' => null];
 
+        $price = $cfg['priceBlock'] ? $this->heatAutoPrice($now) : ['mode' => 'off', 'expensive' => null, 'price' => null, 'threshold' => null, 'median' => null, 'until' => 0];
+        $blocksToday = $this->heatAutoBlocksToday($now);
+        $blockStart = (int) $this->ReadAttributeInteger('HeatAutoBlockStart');
+        $batteryCovers = $cfg['priceBlock'] && $price['expensive'] === true ? $this->heatAutoBatteryCovers() : false;
+
         $decision = HeishaHeatingAutomation::decide([
             'state'        => $state,
             'hoursInState' => max(0, $now - $since) / 3600,
@@ -2955,8 +3125,20 @@ class HeishaMon extends IPSModule
             'roomWarmMin'  => self::heatAutoMinutes($warmSince, $now),
             'roomHotMin'   => self::heatAutoMinutes($hotSince, $now),
             'dewOk'        => $dew['ok'],
+            'priceExpensive' => $price['expensive'],
+            'priceBlockedMin' => $state === 'blocked' ? self::heatAutoMinutes($blockStart, $now) : 0,
+            'priceBlocksToday' => $blocksToday,
+            'batteryCovers' => $batteryCovers,
             'cfg'          => $cfg
         ]);
+        //Zahlen fuer die Begruendung der Preis-Sperre
+        $blockUntil = $price['until'] > 0 ? $price['until'] : $now + $cfg['priceBlockMaxMin'] * 60;
+        if ($decision['reason'] === 'price_block') {
+            $blockUntil = min($blockUntil, $blockStart + $cfg['priceBlockMaxMin'] * 60);
+        } else {
+            $blockUntil = min($blockUntil, $now + $cfg['priceBlockMaxMin'] * 60);
+        }
+        $decision['params'] += ['price' => $price['price'], 'threshold' => $price['threshold'], 'until' => $blockUntil];
 
         //Kuehlen gewuenscht, aber nicht taupunktsicher belegbar: im Status sichtbar machen
         if ($cfg['coolEnabled'] && $decision['state'] === 'off' && $dew['ok'] !== true && $roomMean !== null
@@ -2975,7 +3157,20 @@ class HeishaMon extends IPSModule
             $this->WriteAttributeInteger('HeatAutoLastSend', 0);
             $this->WriteAttributeBoolean('HeatAutoFault', false);
             $this->LogMessage(sprintf('Heating automation: %s -> %s (%s)', $state, $decision['state'], $decision['reason']), KL_MESSAGE);
+            $sinceBefore = $since;
             $since = $now;
+            if ($decision['state'] === 'blocked') {
+                //Preis-Sperre beginnt: Zeit merken, damit die 12-h-Sperrzeit danach dort weiterlaeuft, wo sie stand
+                $this->WriteAttributeInteger('HeatAutoBlockStart', $now);
+                $this->WriteAttributeInteger('HeatAutoPreBlockSince', $sinceBefore);
+                $this->WriteAttributeInteger('HeatAutoBlocksToday', $blocksToday + 1);
+            } elseif ($state === 'blocked') {
+                $pre = (int) $this->ReadAttributeInteger('HeatAutoPreBlockSince');
+                if ($pre > 0) {
+                    $since = $pre;
+                    $this->WriteAttributeInteger('HeatAutoSince', $pre);
+                }
+            }
         }
         $this->heatAutoEnforce($decision['state'], $now);
         $this->heatAutoPublish($decision['state'], $decision['reason'], $decision['params'], [
@@ -2993,6 +3188,13 @@ class HeishaMon extends IPSModule
             'humidityCount' => $dew['count'] ?? 0,
             'dewPointC'   => $dew['dewC'],
             'dewOk'       => $dew['ok'],
+            'priceMode'   => $price['mode'],
+            'priceNowCt'  => $price['price'],
+            'priceThresholdCt' => $price['threshold'],
+            'priceMedianCt' => $price['median'],
+            'priceExpensive' => $price['expensive'],
+            'priceUntil'  => $price['until'],
+            'blocksToday' => $blocksToday + ($decision['state'] === 'blocked' && $state !== 'blocked' ? 1 : 0),
             'since'       => $since
         ]);
     }
@@ -3033,7 +3235,7 @@ class HeishaMon extends IPSModule
         $desired = $this->heatAutoModeFor($state);
         $actual = $this->heatAutoActualMode();
         //Auch eine Variante desselben Zustands (z.B. Auto+WW statt Heizen+WW) gilt als erfuellt
-        if ($actual === $desired || ($actual !== null && $this->heatAutoStateFromMode($actual) === $state)) {
+        if ($actual === $desired || ($actual !== null && $this->heatAutoStateFromMode($actual) === $this->heatAutoModeState($state))) {
             $this->WriteAttributeInteger('HeatAutoTries', 0);
             $this->WriteAttributeBoolean('HeatAutoFault', false);
             return;
@@ -3075,7 +3277,7 @@ class HeishaMon extends IPSModule
         $this->WriteAttributeInteger('HeatAutoTries', 0);
         $this->WriteAttributeBoolean('HeatAutoFault', false);
         $this->SetTimerInterval('HeatAutoVerify', 0);
-        if (($state === 'off' || $state === 'cooling') && (string) $this->ReadPropertyString('MQTTTopic') !== '' && $this->HasActiveParent()) {
+        if (($state === 'off' || $state === 'cooling' || $state === 'blocked') && (string) $this->ReadPropertyString('MQTTTopic') !== '' && $this->HasActiveParent()) {
             $this->SendSetCommand('SetOperationMode', (string) $this->heatAutoModeFor('heating'));
             $this->LogMessage('Heating automation switched off: heating mode restored', KL_MESSAGE);
         }
@@ -3094,7 +3296,7 @@ class HeishaMon extends IPSModule
         ]));
         $stateID = @$this->GetIDForIdent('HeatAuto_State');
         if ($stateID !== false && $state !== '') {
-            $this->SetValue('HeatAuto_State', ['off' => 0, 'heating' => 1, 'cooling' => 2][$state]);
+            $this->SetValue('HeatAuto_State', ['off' => 0, 'heating' => 1, 'cooling' => 2, 'blocked' => 3][$state]);
         }
         $reasonID = @$this->GetIDForIdent('HeatAuto_Reason');
         if ($reasonID !== false && GetValue($reasonID) !== $text) {
@@ -3114,6 +3316,18 @@ class HeishaMon extends IPSModule
         $shortHours = (int) $this->ReadPropertyInteger('HeatAutoMeanShortHours');
         $longHours = (int) $this->ReadPropertyInteger('HeatAutoMeanLongHours');
         switch ($code) {
+            case 'price_start':
+                return sprintf($this->Translate('Price block: the current price %s ct/kWh is among the most expensive (from %s ct/kWh) - heating paused until %s at the latest.'), $n('price'), $n('threshold'), date('H:i', (int) ($params['until'] ?? 0)));
+            case 'price_block':
+                return sprintf($this->Translate('Price block active until %s at the latest (price %s ct/kWh).'), date('H:i', (int) ($params['until'] ?? 0)), $n('price'));
+            case 'price_end':
+                return $this->Translate('Price block ended: the price is no longer high - heating on.');
+            case 'price_limit':
+                return $this->Translate('Price block ended: maximum duration reached - heating on.');
+            case 'price_comfort':
+                return $this->Translate('Price block ended: the rooms are getting too cold - heating on.');
+            case 'price_battery':
+                return $this->Translate('Price block ended: the battery now covers the load - heating on.');
             case 'manual':
                 return sprintf($this->Translate('Operating mode was changed from outside - the automation waits for the lock time (up to %s h).'), $n('remaining'));
             case 'inactive':
@@ -3190,6 +3404,69 @@ class HeishaMon extends IPSModule
         return [$roomsLine, $humidityLine];
     }
 
+    /** Preislage und Sperr-Zaehler fuer GetHeatingAutomation() (immer vorhanden, 'enabled' = Preis-Sperre eingeschaltet). */
+    private function heatAutoPriceInfo(): array
+    {
+        $enabled = $this->ReadPropertyBoolean('HeatAutoPriceBlock');
+        $price = $enabled ? $this->heatAutoPrice(time()) : ['mode' => 'off', 'expensive' => null, 'price' => null, 'threshold' => null, 'median' => null, 'until' => 0];
+        $state = (string) $this->ReadAttributeString('HeatAutoState');
+        return [
+            'enabled'          => $enabled,
+            'source'           => $price['mode'],
+            'nowCtKwh'         => $price['price'],
+            'thresholdCtKwh'   => $price['threshold'],
+            'medianCtKwh'      => $price['median'],
+            'expensive'        => $price['expensive'],
+            'blocksToday'      => (string) $this->ReadAttributeString('HeatAutoBlocksDay') === date('Y-m-d') ? (int) $this->ReadAttributeInteger('HeatAutoBlocksToday') : 0,
+            'blockedSince'     => $state === 'blocked' ? (int) $this->ReadAttributeInteger('HeatAutoBlockStart') : 0,
+            'batteryCoversLoad' => $enabled ? $this->heatAutoBatteryCovers() : false
+        ];
+    }
+
+    /** Zeile "Preis" fuer das Konfigurationsformular. */
+    private function heatAutoPriceStatusLine(): string
+    {
+        if (!$this->ReadPropertyBoolean('HeatAutoEnabled') || !$this->ReadPropertyBoolean('HeatAutoPriceBlock')) {
+            return '';
+        }
+        $price = $this->heatAutoPrice(time());
+        switch ($price['mode']) {
+            case 'tibber':
+                $source = $this->Translate('🔗 Price curve from Tibber Grid Rewards');
+                break;
+            case 'spot':
+                $source = $this->Translate('🔗 Price curve from the Börsenpreis module');
+                break;
+            case 'variable':
+                $source = $this->Translate('✏️ Your own price variable');
+                break;
+            default:
+                return $this->Translate('ℹ️ No price source found (Tibber Grid Rewards, Börsenpreis) - select your own price variable below, otherwise there is no price block.');
+        }
+        if ($price['price'] === null) {
+            return $source . ': ' . $this->Translate('the price situation cannot be judged yet (too little price data).');
+        }
+        return $source . sprintf($this->Translate(': now %s ct/kWh, high from %s ct/kWh (median %s ct/kWh) - %s.'),
+            $this->heatAutoNumber($price['price']), $this->heatAutoNumber($price['threshold']), $this->heatAutoNumber($price['median']),
+            $price['expensive'] ? $this->Translate('expensive now') : $this->Translate('not expensive now'));
+    }
+
+    /** Zeile "Batterie" fuer das Konfigurationsformular. */
+    private function heatAutoBatteryStatusLine(): string
+    {
+        if (!$this->ReadPropertyBoolean('HeatAutoEnabled') || !$this->ReadPropertyBoolean('HeatAutoPriceBlock')) {
+            return '';
+        }
+        if ((float) $this->ReadPropertyFloat('HeatAutoBatteryCapacityKwh') <= 0) {
+            return $this->Translate('ℹ️ No battery capacity entered - the price block applies even if a battery could carry the load.');
+        }
+        $soc = $this->heatAutoBatterySoc();
+        if ($soc === null) {
+            return $this->Translate('⚠️ Battery capacity entered, but no state of charge found (InverterHub or own variable) - the price block applies.');
+        }
+        return sprintf($this->Translate('✅ Battery at %s %%: %s.'), $this->heatAutoNumber($soc), $this->heatAutoBatteryCovers() ? $this->Translate('it carries the heat pump during a block, no price block') : $this->Translate('not enough reserve, the price block applies'));
+    }
+
     /** Zeile fuer das Konfigurationsformular. */
     private function heatAutoStatusLine(): array
     {
@@ -3219,6 +3496,16 @@ class HeishaMon extends IPSModule
         'useRoom'                 => [null, '', true],
         'roomDelayHours'          => [0.25, 'h', 2.0],
         'excludeWords'            => [null, '', HeishaHeatingAutomation::DEFAULT_EXCLUDE_WORDS],
+        'priceBlockEnabled'       => [null, '', false],
+        'priceBlockMaxHours'      => [1, 'h', 2],
+        'priceBlocksPerDay'       => [1, '', 2],
+        'priceMinSpreadCt'        => [0.5, 'ct/kWh', 5.0],
+        'priceRoomReserveK'       => [0.5, 'K', 1.0],
+        'priceVariableID'         => [1, '', 0],
+        'batteryCapacityKwh'      => [0.5, 'kWh', 0.0],
+        'batteryReservePct'       => [1, '%', 20.0],
+        'batterySocVariableID'    => [1, '', 0],
+        'batteryLoadKw'           => [0.1, 'kW', 1.0],
         'coolingEnabled'          => [null, '', false],
         'coolRoomOnC'             => [0.5, '°C', 25.0],
         'coolOutsideMinC'         => [0.5, '°C', 20.0],
@@ -3335,14 +3622,15 @@ class HeishaMon extends IPSModule
             'roomMinC'            => $values['roomMinC'] ?? null,
             'dewPointC'           => $values['dewPointC'] ?? null,
             'lastSwitchAt'        => $running && $since > 0 ? $since : 0,
-            'nextSwitchAllowedAt' => $running && $since > 0 ? $since + (int) round($holdHours * 3600) : 0,
+            'nextSwitchAllowedAt' => $running && $since > 0 ? ($state === 'blocked' ? $since + (int) $this->ReadPropertyInteger('HeatAutoPriceBlockMaxHours') * 3600 : $since + (int) round($holdHours * 3600)) : 0,
             'evaluatedAt'         => $last['at'] ?? 0,
             'lastError'           => $lastError === '' ? null : $lastError,
             'config'            => $config,
             'configRevision'    => $this->heatAutoRevision(),
             'limits'            => $limits,
             'rooms'             => $rooms,
-            'sources'           => $sources
+            'sources'           => $sources,
+            'price'             => $this->heatAutoPriceInfo()
         ];
     }
 

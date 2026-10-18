@@ -32,7 +32,7 @@
                 },
                 {
                     "type": "Label",
-                    "caption": "🌡️ Heating automation: Optionally switches only the room heating on and off (and, with a dew point source, cooling) from the outside temperature means and your room temperatures. Hot water is never affected. Turn it on with the switch variable \"Heating automation\"; switching it off restores the heating. Humidity and room sensors are found automatically (your own selection overrides)."
+                    "caption": "🌡️ Heating automation: Optionally switches only the room heating on and off (and, with a dew point source, cooling) from the outside temperature means and your room temperatures. Hot water is never affected. Turn it on with the switch variable \"Heating automation\"; switching it off restores the heating. Humidity and room sensors are found automatically (your own selection overrides). With a dynamic tariff it can also pause the heating in the most expensive hours (price block)."
                 },
                 {
                     "type": "Label",
@@ -630,6 +630,140 @@
                                     "edit": {
                                         "type": "SelectVariable"
                                     }
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": "ExpansionPanel",
+                    "caption": "💶 Price block (dynamic tariff, optional)",
+                    "items": [
+                        {
+                            "type": "Label",
+                            "caption": "With a dynamic electricity tariff the automation can pause the room heating in the most expensive hours of the day, so the heat pump does not run exactly then. Hot water is not touched. The price curve is found automatically (Tibber Grid Rewards, Börsenpreis); without a curve you can name a variable with the current price in ct/kWh."
+                        },
+                        {
+                            "type": "RowLayout",
+                            "items": [
+                                {
+                                    "type": "CheckBox",
+                                    "name": "HeatAutoPriceBlock",
+                                    "caption": "Pause the heating in the most expensive hours"
+                                },
+                                {
+                                    "type": "PopupButton",
+                                    "caption": "When does the price block pause the heating?",
+                                    "width": "460px",
+                                    "popup": {
+                                        "caption": "When does the price block pause the heating?",
+                                        "items": [
+                                            {
+                                                "type": "Label",
+                                                "caption": "A price counts as high from the larger of two limits: the 85th percentile of the next 24 hours and the median plus the minimum spread. With a flat price curve nothing is ever blocked. A block only starts while the heating is running, when the rooms are at least the reserve above their minimum temperature (without room sensors: when the outside mean is clearly above the frost limit), when the daily number of blocks is not reached, and when a battery would not carry the load anyway. A block ends as soon as the price drops, the maximum duration is reached, the rooms get too cold, the battery takes over or frost protection applies. The lock time of the automation continues where it stood before the block. Every block changes the operating mode of the heat pump twice, so keep the number small."
+                                            }
+                                        ]
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "Label",
+                            "name": "HeatAutoPriceStatus",
+                            "caption": "PRICESTATUS"
+                        },
+                        {
+                            "type": "RowLayout",
+                            "items": [
+                                {
+                                    "type": "NumberSpinner",
+                                    "name": "HeatAutoPriceBlockMaxHours",
+                                    "caption": "Maximum duration of a block",
+                                    "suffix": " h",
+                                    "minimum": 1,
+                                    "maximum": 4
+                                },
+                                {
+                                    "type": "NumberSpinner",
+                                    "name": "HeatAutoPriceBlocksPerDay",
+                                    "caption": "Maximum blocks per day",
+                                    "suffix": "",
+                                    "minimum": 1,
+                                    "maximum": 3
+                                },
+                                {
+                                    "type": "NumberSpinner",
+                                    "name": "HeatAutoPriceMinSpreadCt",
+                                    "caption": "Minimum spread above the median",
+                                    "suffix": " ct/kWh",
+                                    "minimum": 1,
+                                    "maximum": 30,
+                                    "digits": 1
+                                }
+                            ]
+                        },
+                        {
+                            "type": "NumberSpinner",
+                            "name": "HeatAutoPriceRoomReserveK",
+                            "caption": "Room reserve above the minimum before a block",
+                            "suffix": " K",
+                            "minimum": 0,
+                            "maximum": 5,
+                            "digits": 1
+                        },
+                        {
+                            "type": "SelectVariable",
+                            "name": "HeatAutoPriceVariable",
+                            "caption": "Own price variable (current price in ct/kWh) - optional, replaces the price curve"
+                        },
+                        {
+                            "type": "ExpansionPanel",
+                            "caption": "🔋 Battery (optional)",
+                            "items": [
+                                {
+                                    "type": "Label",
+                                    "caption": "If a battery can carry the heat pump through the expensive hours anyway, blocking is pointless. Enter the usable capacity of your battery to enable this check; the state of charge is read from InverterHub automatically, or name your own variable."
+                                },
+                                {
+                                    "type": "Label",
+                                    "name": "HeatAutoBatteryStatus",
+                                    "caption": "BATTERYSTATUS"
+                                },
+                                {
+                                    "type": "RowLayout",
+                                    "items": [
+                                        {
+                                            "type": "NumberSpinner",
+                                            "name": "HeatAutoBatteryCapacityKwh",
+                                            "caption": "Usable battery capacity (0 = no check)",
+                                            "suffix": " kWh",
+                                            "minimum": 0,
+                                            "maximum": 200,
+                                            "digits": 1
+                                        },
+                                        {
+                                            "type": "NumberSpinner",
+                                            "name": "HeatAutoBatteryReservePct",
+                                            "caption": "Reserve that must stay in the battery",
+                                            "suffix": " %",
+                                            "minimum": 0,
+                                            "maximum": 90
+                                        },
+                                        {
+                                            "type": "NumberSpinner",
+                                            "name": "HeatAutoBatteryLoadKw",
+                                            "caption": "Assumed heat pump load",
+                                            "suffix": " kW",
+                                            "minimum": 0.2,
+                                            "maximum": 10,
+                                            "digits": 1
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "SelectVariable",
+                                    "name": "HeatAutoBatterySocVariable",
+                                    "caption": "State of charge (%) - optional, otherwise from InverterHub"
                                 }
                             ]
                         }
