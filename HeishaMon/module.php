@@ -66,6 +66,9 @@ class HeishaMon extends IPSModule
         '1.36.0' => [
             'New: price block for dynamic electricity tariffs (optional, in the "Heating automation" panel). In the most expensive hours of the day the automation can pause the room heating (hot water is not touched), so the heat pump does not run exactly then. The price curve is found automatically (Tibber Grid Rewards, Börsenpreis) or taken from your own price variable. A block only starts when the rooms have a reserve, the daily number of blocks is not reached and frost protection is not active; it ends when the price drops, after the maximum duration or when the rooms get too cold.',
             'New: if you enter the usable capacity of your battery, no block happens while the battery (state of charge from InverterHub or your own variable, above its reserve) can carry the heat pump through the expensive hours anyway.'
+        ],
+        '1.37.0' => [
+            'New: the price block now asks EMS (if installed) whether grid import would arise without the heat pump block - EMS knows PV forecast, battery plan, prices and reserve. If the PV system or the battery carries the load anyway, there is no block. Nothing to enter; the simple battery check from 1.36.0 only remains as fallback when EMS is missing or has no answer. The reason text shows what EMS expects (avoided grid import and price).'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -2519,6 +2522,7 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeString('HeatAutoPriceRing', '[]');
         $this->RegisterAttributeInteger('HeatAutoBlockStart', 0);
         $this->RegisterAttributeString('HeatAutoBlockLog', '[]');
+        $this->RegisterAttributeString('HeatAutoBatteryCache', '{}');
         $this->RegisterAttributeInteger('HeatAutoPreBlockSince', 0);
         $this->RegisterAttributeString('HeatAutoBlocksDay', '');
         $this->RegisterAttributeInteger('HeatAutoBlocksToday', 0);
@@ -3030,7 +3034,77 @@ class HeishaMon extends IPSModule
     }
 
     /** Traegt die Batterie die Waermepumpe waehrend einer Sperre ohnehin? Nur mit eingetragener Kapazitaet. */
-    private function heatAutoBatteryCovers(): bool
+    private const EMS_MODULE_GUID = '{31C61A7B-28C4-4F97-9651-1A64B3469E3C}';
+
+    /**
+     * Batterie-/Netzbezug-Pruefung fuer die Preis-Sperre. Bevorzugt EMS (EMS_GetGridImportOutlook, Vertrag 1.0, reiner
+     * Berater: PV-Prognose, Batterieplan, Preise, Reserve), sonst die einfache Ersatzregel aus Ladestand und eingetragener
+     * Kapazitaet. Mit $fresh=false (Formular, Get) gilt ein bis zu 5 Minuten altes Ergebnis, damit eine oft abfragende
+     * Oberflaeche EMS nicht belastet. covers = true heisst: kein Netzbezug zu erwarten, also nicht sperren.
+     *
+     * @return array{covers: bool, source: string, avoidedKwh: ?float, avgPriceCt: ?float}
+     */
+    private function heatAutoBatteryCheck(bool $fresh = true): array
+    {
+        $cache = json_decode((string) $this->ReadAttributeString('HeatAutoBatteryCache'), true);
+        if (!$fresh && is_array($cache) && isset($cache['at'], $cache['result']) && time() - (int) $cache['at'] < 300) {
+            $cached = $cache['result'];
+            //nach dem JSON-Rundlauf wieder sauber typisieren
+            return [
+                'covers'     => (bool) ($cached['covers'] ?? false),
+                'source'     => (string) ($cached['source'] ?? 'none'),
+                'avoidedKwh' => isset($cached['avoidedKwh']) ? (float) $cached['avoidedKwh'] : null,
+                'avgPriceCt' => isset($cached['avgPriceCt']) ? (float) $cached['avgPriceCt'] : null
+            ];
+        }
+        $result = $this->heatAutoBatteryViaEms();
+        if ($result === null) {
+            $simple = (float) $this->ReadPropertyFloat('HeatAutoBatteryCapacityKwh') > 0;
+            $result = ['covers' => $simple && $this->heatAutoBatteryCoversSimple(), 'source' => $simple ? 'simple' : 'none', 'avoidedKwh' => null, 'avgPriceCt' => null];
+        }
+        $this->WriteAttributeString('HeatAutoBatteryCache', json_encode(['at' => time(), 'result' => $result]));
+        return $result;
+    }
+
+    /**
+     * Fragt EMS, ob in der Sperrdauer ohne die Waermepumpe-Last Netzbezug entstanden waere. Ausgewertet wird das
+     * BASELINE-Szenario (Plan inklusive Waermepumpe): nur wenn dort Batterie/PV die Last ohnehin tragen und die Reserve
+     * eingehalten bleibt, ist eine Sperre sinnlos. null = EMS nicht erreichbar oder ohne Antwort (dann Ersatzregel).
+     */
+    private function heatAutoBatteryViaEms(): ?array
+    {
+        if (!function_exists('EMS_GetGridImportOutlook')) {
+            return null;
+        }
+        $instances = @IPS_GetInstanceListByModuleID(self::EMS_MODULE_GUID);
+        if (!is_array($instances) || $instances === []) {
+            return null;
+        }
+        $powerID = $this->idForIdent('Power_Total');
+        $measuredW = $powerID === 0 ? 0.0 : max(0.0, (float) GetValue($powerID));
+        $loadW = max((float) $this->ReadPropertyFloat('HeatAutoBatteryLoadKw') * 1000.0, $measuredW);
+        $hours = min(12, max(1, (int) $this->ReadPropertyInteger('HeatAutoPriceBlockMaxHours')));
+        $now = time();
+        try {
+            //alle fuenf Argumente sind Pflicht (feste Arität des Kernel-Wrappers); konservativ = PV p10
+            $outlook = EMS_GetGridImportOutlook($instances[0], $now, $now + $hours * 3600, -$loadW, true);
+        } catch (Throwable $e) {
+            return null;
+        }
+        if (!is_array($outlook) || empty($outlook['ok'])) {
+            return null;
+        }
+        $baseline = (array) ($outlook['baseline'] ?? []);
+        $price = $baseline['avgPriceCt'] ?? ($outlook['avgPriceCt'] ?? null);
+        return [
+            'covers'     => !empty($baseline['batteryCoversLoad']) && !empty($baseline['reserveRespected']),
+            'source'     => 'ems',
+            'avoidedKwh' => isset($outlook['avoidedImportKwh']) && is_numeric($outlook['avoidedImportKwh']) ? (float) $outlook['avoidedImportKwh'] : null,
+            'avgPriceCt' => is_numeric($price) ? (float) $price : null
+        ];
+    }
+
+    private function heatAutoBatteryCoversSimple(): bool
     {
         $capacity = (float) $this->ReadPropertyFloat('HeatAutoBatteryCapacityKwh');
         if ($capacity <= 0) {
@@ -3139,7 +3213,8 @@ class HeishaMon extends IPSModule
         $price = $cfg['priceBlock'] ? $this->heatAutoPrice($now) : ['mode' => 'off', 'expensive' => null, 'price' => null, 'threshold' => null, 'median' => null, 'until' => 0];
         $blocksToday = $this->heatAutoBlocksToday($now);
         $blockStart = (int) $this->ReadAttributeInteger('HeatAutoBlockStart');
-        $batteryCovers = $cfg['priceBlock'] && $price['expensive'] === true ? $this->heatAutoBatteryCovers() : false;
+        $battery = $cfg['priceBlock'] && $price['expensive'] === true ? $this->heatAutoBatteryCheck(true) : ['covers' => false, 'source' => 'none', 'avoidedKwh' => null, 'avgPriceCt' => null];
+        $batteryCovers = $battery['covers'];
 
         $decision = HeishaHeatingAutomation::decide([
             'state'        => $state,
@@ -3168,7 +3243,8 @@ class HeishaMon extends IPSModule
         } else {
             $blockUntil = min($blockUntil, $now + $cfg['priceBlockMaxMin'] * 60);
         }
-        $decision['params'] += ['price' => $price['price'], 'threshold' => $price['threshold'], 'until' => $blockUntil];
+        $decision['params'] += ['price' => $price['price'], 'threshold' => $price['threshold'], 'until' => $blockUntil,
+            'avoidedKwh' => $battery['avoidedKwh'], 'avgPriceCt' => $battery['avgPriceCt'], 'batterySource' => $battery['source']];
 
         //Kuehlen gewuenscht, aber nicht taupunktsicher belegbar: im Status sichtbar machen
         if ($cfg['coolEnabled'] && $decision['state'] === 'off' && $dew['ok'] !== true && $roomMean !== null
@@ -3352,7 +3428,13 @@ class HeishaMon extends IPSModule
         $longHours = (int) $this->ReadPropertyInteger('HeatAutoMeanLongHours');
         switch ($code) {
             case 'price_start':
-                return sprintf($this->Translate('Price block: the current price %s ct/kWh is among the most expensive (from %s ct/kWh) - heating paused until %s at the latest.'), $n('price'), $n('threshold'), date('H:i', (int) ($params['until'] ?? 0)));
+                $text = sprintf($this->Translate('Price block: the current price %s ct/kWh is among the most expensive (from %s ct/kWh) - heating paused until %s at the latest.'), $n('price'), $n('threshold'), date('H:i', (int) ($params['until'] ?? 0)));
+                if (($params['batterySource'] ?? '') === 'ems' && isset($params['avoidedKwh'])) {
+                    $text .= ' ' . (isset($params['avgPriceCt'])
+                        ? sprintf($this->Translate('According to EMS this avoids about %s kWh grid import at around %s ct/kWh.'), $n('avoidedKwh'), $n('avgPriceCt'))
+                        : sprintf($this->Translate('According to EMS this avoids about %s kWh grid import.'), $n('avoidedKwh')));
+                }
+                return $text;
             case 'price_block':
                 return sprintf($this->Translate('Price block active until %s at the latest (price %s ct/kWh).'), date('H:i', (int) ($params['until'] ?? 0)), $n('price'));
             case 'price_end':
@@ -3362,7 +3444,9 @@ class HeishaMon extends IPSModule
             case 'price_comfort':
                 return $this->Translate('Price block ended: the rooms are getting too cold - heating on.');
             case 'price_battery':
-                return $this->Translate('Price block ended: the battery now covers the load - heating on.');
+                return ($params['batterySource'] ?? '') === 'ems'
+                    ? $this->Translate('Price block ended: according to EMS no grid import is expected any more - heating on.')
+                    : $this->Translate('Price block ended: the battery now covers the load - heating on.');
             case 'manual':
                 return sprintf($this->Translate('Operating mode was changed from outside - the automation waits for the lock time (up to %s h).'), $n('remaining'));
             case 'inactive':
@@ -3444,6 +3528,7 @@ class HeishaMon extends IPSModule
     {
         $enabled = $this->ReadPropertyBoolean('HeatAutoPriceBlock');
         $price = $enabled ? $this->heatAutoPrice(time()) : ['mode' => 'off', 'expensive' => null, 'price' => null, 'threshold' => null, 'median' => null, 'until' => 0];
+        $battery = $enabled && $price['expensive'] === true ? $this->heatAutoBatteryCheck(false) : ['covers' => false, 'source' => 'none', 'avoidedKwh' => null, 'avgPriceCt' => null];
         $state = (string) $this->ReadAttributeString('HeatAutoState');
         return [
             'enabled'          => $enabled,
@@ -3455,7 +3540,10 @@ class HeishaMon extends IPSModule
             'blocksToday'      => (string) $this->ReadAttributeString('HeatAutoBlocksDay') === date('Y-m-d') ? (int) $this->ReadAttributeInteger('HeatAutoBlocksToday') : 0,
             'blockedSince'     => $state === 'blocked' ? (int) $this->ReadAttributeInteger('HeatAutoBlockStart') : 0,
             'blockWindows'     => $this->heatAutoBlockLog(time()),
-            'batteryCoversLoad' => $enabled ? $this->heatAutoBatteryCovers() : false
+            'batteryCoversLoad' => $battery['covers'],
+            'batterySource'    => $battery['source'],
+            'avoidedImportKwh' => $battery['avoidedKwh'],
+            'importPriceCt'    => $battery['avgPriceCt']
         ];
     }
 
@@ -3493,6 +3581,12 @@ class HeishaMon extends IPSModule
         if (!$this->ReadPropertyBoolean('HeatAutoEnabled') || !$this->ReadPropertyBoolean('HeatAutoPriceBlock')) {
             return '';
         }
+        $check = $this->heatAutoBatteryCheck(false);
+        if ($check['source'] === 'ems') {
+            return $this->Translate('🔗 Checked via EMS (PV forecast, battery plan, prices): ') . ($check['covers']
+                ? $this->Translate('no grid import expected during a block, no price block.')
+                : $this->Translate('grid import would arise, the price block applies.'));
+        }
         if ((float) $this->ReadPropertyFloat('HeatAutoBatteryCapacityKwh') <= 0) {
             return $this->Translate('ℹ️ No battery capacity entered - the price block applies even if a battery could carry the load.');
         }
@@ -3500,7 +3594,7 @@ class HeishaMon extends IPSModule
         if ($soc === null) {
             return $this->Translate('⚠️ Battery capacity entered, but no state of charge found (InverterHub or own variable) - the price block applies.');
         }
-        return sprintf($this->Translate('✅ Battery at %s %%: %s.'), $this->heatAutoNumber($soc), $this->heatAutoBatteryCovers() ? $this->Translate('it carries the heat pump during a block, no price block') : $this->Translate('not enough reserve, the price block applies'));
+        return sprintf($this->Translate('✅ Battery at %s %%: %s.'), $this->heatAutoNumber($soc), $check['covers'] ? $this->Translate('it carries the heat pump during a block, no price block') : $this->Translate('not enough reserve, the price block applies'));
     }
 
     /** Zeile fuer das Konfigurationsformular. */

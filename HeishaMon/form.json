@@ -722,7 +722,7 @@
                             "items": [
                                 {
                                     "type": "Label",
-                                    "caption": "If a battery can carry the heat pump through the expensive hours anyway, blocking is pointless. Enter the usable capacity of your battery to enable this check; the state of charge is read from InverterHub automatically, or name your own variable."
+                                    "caption": "If a battery or the PV system can carry the heat pump through the expensive hours anyway, blocking is pointless. With EMS installed, EMS judges this on its own from PV forecast, battery plan and prices - nothing to enter here. Without EMS, enter the usable capacity of your battery for a simple check; the state of charge is read from InverterHub automatically, or name your own variable."
                                 },
                                 {
                                     "type": "Label",
