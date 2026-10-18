@@ -58,6 +58,10 @@ class HeishaMon extends IPSModule
             'New: optional cooling in the automation, only with a dew point (or humidity) source: it starts only if the lowest cooling target of the heating curve stays above the dew point plus a safety margin and stops at once when the flow temperature falls below it.',
             'New: the automation finds its sources on its own - humidity sensors of the rooms (outdoor and soil moisture excluded, highest value counts) and one temperature sensor per room of the Raumstruktur module (outdoor and unheated rooms excluded, at least three rooms, median). Your own selection always overrides; the exclusion list of room and sensor names can be edited in the form, and status lines show what applies.',
             'New: after every operating mode command the module reads the mode back and retries up to three times - the unit never acknowledges commands itself. If someone changes the operating mode from outside (e.g. in the dashboard), the automation accepts that and waits for the lock time; only frost protection acts immediately.'
+        ],
+        '1.35.1' => [
+            'Fix: after a restart of Symcon the measured-COP variables (COP measured, heat energy today, energy consumption today, performance factor today) could be deleted when MeterHub was not instantiated yet at that moment. The module now waits until Symcon is fully started before deciding about them and only then picks up the MeterHub meter.',
+            'Fix: the on/off displays of boolean values (e.g. Online/Offline) used a color key that only enumerations know. Symcon 9.1 refused to create the instance because of it. Existing variables are converted automatically.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -161,6 +165,12 @@ class HeishaMon extends IPSModule
         $this->RegisterVariableBoolean('Reachable', $this->Translate('Reachable'), $this->reachablePresentation(), 0);
     }
 
+    /**
+     * Options-Schluessel haengen von der Darstellung ab (Symcon-Doku, geprueft 18.10.2026,
+     * Store-Review): Wertanzeige (VALUE_PRESENTATION, auch bool) kennt ColorActive + ColorValue,
+     * Aufzaehlung (ENUMERATION) kennt NUR Color. Ein falscher Schluessel bricht das Anlegen der
+     * Instanz ab (Symcon 9.1) bzw. stuerzt die Mobile-App ab.
+     */
     private function reachablePresentation(): array
     {
         return [
@@ -171,14 +181,16 @@ class HeishaMon extends IPSModule
                     'Caption'     => 'Online',
                     'IconActive'  => false,
                     'IconValue'   => '',
-                    'Color'       => 65280
+                    'ColorActive' => true,
+                    'ColorValue'  => 65280
                 ],
                 [
                     'Value'       => false,
                     'Caption'     => 'Offline',
                     'IconActive'  => false,
                     'IconValue'   => '',
-                    'Color'       => 16711680
+                    'ColorActive' => true,
+                    'ColorValue'  => 16711680
                 ]
             ])
         ];
@@ -696,19 +708,6 @@ class HeishaMon extends IPSModule
         $this->SetReceiveDataFilter('.*' . $filterTopic . '.*');
         $this->SetStatus(IS_ACTIVE);
 
-        //Variablen der COP-Berechnung anlegen bzw. entfernen, je nach Konfiguration (eigene Wahl
-        //ODER automatische MeterHub-Zuordnung - beide zaehlen fuer "ein Zaehler ist da")
-        $powerID = $this->resolvedPowerID();
-        $energyID = $this->resolvedEnergyID();
-        $copPresentation = [
-            'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
-            'DIGITS'       => 2
-        ];
-        $kwhPresentation = [
-            'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
-            'SUFFIX'       => ' kWh',
-            'DIGITS'       => 2
-        ];
         //Elektrische Gesamtleistung: gemessen, wenn ein Zaehler konfiguriert ist, sonst HeishaMon-Schaetzung.
         //Wird immer gefuehrt und ist der Anknuepfungspunkt fuer andere Module (siehe GetFunctions).
         $this->maintainCalculationVariable('Power_Total', $this->Translate('Electrical power (total)'), [
@@ -724,13 +723,13 @@ class HeishaMon extends IPSModule
             'DIGITS'       => 0
         ], 198, true);
         $this->updateHeatOutputTotal();
-        $this->maintainCalculationVariable('COP_Measured', $this->Translate('COP (measured)'), $copPresentation, 201, $powerID > 0);
-        $this->maintainCalculationVariable('Heat_Energy_Today', $this->Translate('Heat energy today'), $kwhPresentation, 202, $energyID > 0);
-        $this->maintainCalculationVariable('Power_Energy_Today', $this->Translate('Energy consumption today'), $kwhPresentation, 203, $energyID > 0);
-        $this->maintainCalculationVariable('COP_Today', $this->Translate('Performance factor today'), $copPresentation, 204, $energyID > 0);
-        $this->updateTotalPower();
-
-        $this->SetTimerInterval('COPUpdate', $energyID > 0 ? 60000 : 0);
+        //Die Messwert-Variablen haengen von der MeterHub-Zuordnung ab. Beim Symcon-Start ist MeterHub
+        //evtl. noch nicht instanziiert und wuerde nicht gefunden - dann wuerden vier Variablen
+        //geloescht (Store-Review 18.10.2026). Deshalb erst bei KR_READY; sonst uebernimmt das
+        //MessageSink bei IPS_KERNELSTARTED (siehe unten).
+        if (IPS_GetKernelRunlevel() == KR_READY) {
+            $this->maintainMeasuredVariables();
+        }
 
         //Neustart-Watchdog nur mit aktivierter Option und eingetragener Platinen-IP
         $watchdogActive = $this->ReadPropertyBoolean('RebootWatchdog') && trim((string) $this->ReadPropertyString('DeviceIP')) != '';
@@ -790,9 +789,9 @@ class HeishaMon extends IPSModule
             }
         }
 
-        //Reachable-Darstellung bestehender Installationen auffrischen (Migration des frueheren
-        //falschen Options-Schluessels "ColorValue" -> "Color"; die Variable entsteht in Create(),
-        //dort greift die Korrektur fuer Bestandsanlagen nie)
+        //Reachable-Darstellung bestehender Installationen auffrischen (Migration auf die laut
+        //Symcon-Doku gueltigen Schluessel, siehe reachablePresentation(); die Variable entsteht
+        //in Create(), dort greift die Korrektur fuer Bestandsanlagen nie)
         $this->maintainReachablePresentation();
 
         //Vereinheitlichte Betriebsart (Verbund-Enum, siehe SUITE.md) aus der Panasonic-
@@ -820,10 +819,39 @@ class HeishaMon extends IPSModule
         }
     }
 
+    /**
+     * Variablen der COP-Berechnung anlegen bzw. entfernen, je nach Konfiguration (eigene Wahl ODER
+     * automatische MeterHub-Zuordnung - beide zaehlen fuer "ein Zaehler ist da"). Nur bei
+     * Kernel-Runlevel KR_READY aufrufen: vorher kann MeterHub noch nicht instanziiert sein.
+     */
+    private function maintainMeasuredVariables()
+    {
+        $powerID = $this->resolvedPowerID();
+        $energyID = $this->resolvedEnergyID();
+        $copPresentation = [
+            'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
+            'DIGITS'       => 2
+        ];
+        $kwhPresentation = [
+            'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
+            'SUFFIX'       => ' kWh',
+            'DIGITS'       => 2
+        ];
+        $this->maintainCalculationVariable('COP_Measured', $this->Translate('COP (measured)'), $copPresentation, 201, $powerID > 0);
+        $this->maintainCalculationVariable('Heat_Energy_Today', $this->Translate('Heat energy today'), $kwhPresentation, 202, $energyID > 0);
+        $this->maintainCalculationVariable('Power_Energy_Today', $this->Translate('Energy consumption today'), $kwhPresentation, 203, $energyID > 0);
+        $this->maintainCalculationVariable('COP_Today', $this->Translate('Performance factor today'), $copPresentation, 204, $energyID > 0);
+        $this->updateTotalPower();
+
+        $this->SetTimerInterval('COPUpdate', $energyID > 0 ? 60000 : 0);
+    }
+
     public function MessageSink($TimeStamp, $SenderID, $Message, $Data)
     {
         switch ($Message) {
             case IPS_KERNELSTARTED:
+                //jetzt ist MeterHub sicher instanziiert: Messwert-Variablen nachziehen, dann abonnieren
+                $this->maintainMeasuredVariables();
                 $this->registerExternalMessages();
                 $this->maintainLinkTree();
                 break;
@@ -3818,14 +3846,16 @@ class HeishaMon extends IPSModule
                             'Caption'     => $this->Translate($definition['on'] ?? 'On'),
                             'IconActive'  => false,
                             'IconValue'   => '',
-                            'Color'       => -1
+                            'ColorActive' => false,
+                            'ColorValue'  => -1
                         ],
                         [
                             'Value'       => false,
                             'Caption'     => $this->Translate($definition['off'] ?? 'Off'),
                             'IconActive'  => false,
                             'IconValue'   => '',
-                            'Color'       => -1
+                            'ColorActive' => false,
+                            'ColorValue'  => -1
                         ]
                     ])
                 ];
