@@ -69,6 +69,9 @@ class HeishaMon extends IPSModule
         ],
         '1.37.0' => [
             'New: the price block now asks EMS (if installed) whether grid import would arise without the heat pump block - EMS knows PV forecast, battery plan, prices and reserve. If the PV system or the battery carries the load anyway, there is no block. Nothing to enter; the simple battery check from 1.36.0 only remains as fallback when EMS is missing or has no answer. The reason text shows what EMS expects (avoided grid import and price).'
+        ],
+        '1.38.0' => [
+            'New: the shift of the heating and cooling request (the "-5 to +5 K" setting, i.e. ECO and comfort) now reports its limits and presets - ECO -5, normal 0, comfort +5 - so a dashboard can offer quick buttons and a slider without numbers of its own. The module version reports interface version 1.15.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -2108,6 +2111,9 @@ class HeishaMon extends IPSModule
      *            Ab contractVersion 1.14 additiv: Verschiebung (zones.zX.shift, boardRulesActive,
      *            HEISHA_SetHeatingCurveShift) und Bedienfunktionen (HEISHA_GetOperations/
      *            HEISHA_SetOperation).
+     *            Ab contractVersion 1.15 additiv: HEISHA_GetHeatingAutomation/HEISHA_SetHeatingAutomation
+     *            (Heizungs-Automatik) sowie in zones.zX.shift.heat|cool die Felder minC, maxC und
+     *            presets (eco/normal/comfort) fuer Regler und Schnellwahl.
      *   contractVersion 'Major.Minor' des Vertrags (Suite-Konvention, SUITE.md im EMS-Repo).
      *            Major nur bei Bruch; Kompatibilitaet nur innerhalb derselben Major. Fehlt = '1.0'.
      */
@@ -2166,7 +2172,7 @@ class HeishaMon extends IPSModule
                 'internalHeaterStateID' => $this->idForIdent('Internal_Heater_State'),
                 'externalHeaterStateID' => $this->idForIdent('External_Heater_State'),
                 'forceHeaterStateID'   => $this->idForIdent('Force_Heater_State'),
-                'contractVersion'      => '1.14'
+                'contractVersion'      => '1.15'
             ]
         ];
     }
@@ -2363,7 +2369,7 @@ class HeishaMon extends IPSModule
      */
     public function SetHeatingCurveShift(string $Zone, string $Mode, int $ShiftC): bool
     {
-        if (!in_array($Zone, ['z1', 'z2'], true) || !in_array($Mode, ['heat', 'cool'], true) || $ShiftC < -5 || $ShiftC > 5) {
+        if (!in_array($Zone, ['z1', 'z2'], true) || !in_array($Mode, ['heat', 'cool'], true) || $ShiftC < self::SHIFT_MIN_C || $ShiftC > self::SHIFT_MAX_C) {
             return false;
         }
         $prefix = $Zone === 'z1' ? 'Z1' : 'Z2';
@@ -3928,19 +3934,25 @@ class HeishaMon extends IPSModule
      */
     private function readShift(string $prefix, string $mode): array
     {
+        //Grenzen und Voreinstellungen gehoeren zum Vertrag: Aufrufer bauen Regler und Schnellwahl daraus, ohne eigene
+        //Zahlen (ECO = -5, Normal = 0, Komfort = +5 - die Verschiebung der Heiz-/Kuehlanforderung in K)
+        $limits = ['minC' => self::SHIFT_MIN_C, 'maxC' => self::SHIFT_MAX_C, 'presets' => ['eco' => self::SHIFT_MIN_C, 'normal' => 0, 'comfort' => self::SHIFT_MAX_C]];
         $variableID = $this->idForIdent($prefix . '_' . $mode . '_Request_Temp');
         if ($variableID === 0) {
-            return ['mode' => null, 'valueC' => null];
+            return ['mode' => null, 'valueC' => null] + $limits;
         }
         $value = (int) GetValue($variableID);
-        if ($value >= -5 && $value <= 5) {
-            return ['mode' => 'shift', 'valueC' => $value];
+        if ($value >= self::SHIFT_MIN_C && $value <= self::SHIFT_MAX_C) {
+            return ['mode' => 'shift', 'valueC' => $value] + $limits;
         }
         if ($value >= 20) {
-            return ['mode' => 'direct', 'valueC' => $value];
+            return ['mode' => 'direct', 'valueC' => $value] + $limits;
         }
-        return ['mode' => null, 'valueC' => null];
+        return ['mode' => null, 'valueC' => null] + $limits;
     }
+
+    private const SHIFT_MIN_C = -5;
+    private const SHIFT_MAX_C = 5;
 
     /**
      * Heizkurve einer Zone/eines Modus setzen (zone 'z1'|'z2', mode 'heat'|'cool'). Immer alle

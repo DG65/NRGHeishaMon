@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.38.0 — 2026-10-18
+
+- `HEISHA_GetHeatingCurve()`: In `zones.zX.shift.heat|cool` kommen additiv `minC` (-5), `maxC` (+5) und `presets` (`eco` = -5, `normal` = 0, `comfort` = +5) dazu - für die grafische Einstellung von ECO und Komfort im NRGDashboard-WP-Monitor (Regler und Schnellwahl), ohne dass das Dashboard eigene Zahlen kennen muss. Die Voreinstellungen gelten für die Verschiebung der Heiz- bzw. Kühlanforderung im Verschiebe-Modus (`mode = 'shift'`); im Direktmodus (absolute Vorlauf-Solltemperatur) bleibt `HEISHA_SetHeatingCurveShift()` bei `false`
+- `HEISHA_GetFunctions()` meldet jetzt `contractVersion` **1.15** (im Register seit der Heizungs-Automatik eingetragen, war im Modul bisher 1.14 geblieben): 1.15 umfasst `HEISHA_GetHeatingAutomation()`/`HEISHA_SetHeatingAutomation()` und die Verschiebe-Grenzen
+
 ## 1.37.0 — 2026-10-18
 
 - Neu: Die Batterie-/Netzbezug-Prüfung der Preis-Sperre fragt EMS, wenn es installiert ist: `EMS_GetGridImportOutlook($id, $fromTs, $toTs, $loadDeltaW, $conservative)` (EMS 0.75.0, Vertrag 1.0, reiner Berater - EMS schaltet nichts; alle fünf Argumente sind Pflicht). Fenster = jetzt bis jetzt + Sperrdauer (höchstens 12 h), `loadDeltaW` = minus aktuelle Wärmepumpen-Leistung (mindestens die angenommene Last), `conservative = true` (PV p10: ein Fehlgriff führt nur zu einer unnötigen Sperre, nicht zu Komfortverlust). Ausgewertet wird das **baseline**-Szenario (Plan inklusive Wärmepumpe), nicht die obersten Felder, die den Fall ohne WP-Last beschreiben: keine Sperre, wenn `ok` und `baseline.batteryCoversLoad` und `baseline.reserveRespected`. `avoidedImportKwh` und der Preis erscheinen im Begründungstext einer Sperre. Ist EMS nicht installiert, wirft eine Ausnahme oder liefert `ok = false`, gilt wie bisher die einfache Ersatzregel (Ladestand, eingetragene Kapazität). Das Ergebnis wird für Formular und `GetHeatingAutomation()` bis zu 5 Minuten zwischengespeichert, damit eine oft abfragende Oberfläche EMS nicht belastet; die 15-Minuten-Prüfung fragt immer frisch und nur in teuren Stunden
