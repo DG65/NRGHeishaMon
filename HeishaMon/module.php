@@ -76,6 +76,9 @@ class HeishaMon extends IPSModule
         ],
         '1.39.0' => [
             'New: weekly time schedule for ECO / normal / comfort (the shift of the heating and cooling request, zone 1 and zone 2, heating and cooling) and for the quiet mode level (optional, panel "Time schedule for ECO / comfort and quiet mode"). The heat pump cannot store such a schedule, so the module runs it: it sends a value only when the planned value changes, reads it back, repeats it up to three times, and leaves a value you changed by hand alone until the next switching time. The graphical editor is in the heat pump monitor of the NRGDashboard. Off by default; a channel takes part only when you enable it in the schedule.'
+        ],
+        '1.39.1' => [
+            'Fix: while the instance reloads (for example during a module update) a received message could stop with an error in the log ("InstanceInterface is not available"). Messages in that short window are now skipped and processed normally afterwards.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -1661,6 +1664,14 @@ class HeishaMon extends IPSModule
     {
         $buffer = json_decode($JSONString, true);
         if (!is_array($buffer) || !array_key_exists('Topic', $buffer)) {
+            return '';
+        }
+
+        //Beim Neuladen der Instanz (Modul-Update, Kernel-Reload) ist das Modulobjekt kurz nicht an den Kernel
+        //gebunden ("InstanceInterface is not available"): Translate() und andere Aufrufe liefern dann false und
+        //ein streng typisierter Aufruf bricht mit einem TypeError ab (Live-Fund 18.10.2026 bei maintainStatsVariable).
+        //Die Nachricht wird in dem Fall verworfen - die Platine veroeffentlicht regelmaessig neu.
+        if (@$this->Translate('Reachable') === false) {
             return '';
         }
 
