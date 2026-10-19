@@ -141,7 +141,7 @@ Ein Wochenplan, der nach Wochentag und Uhrzeit die **Verschiebung der Heiz- und 
 - **Aufbau:** je Kanal (Zone 1/2 × Heizen/Kühlen, Flüsterbetrieb) Abschnitte mit Wochentag, Beginn, Ende (15-Minuten-Raster) und Wert; dazwischen gilt der Vorgabewert des Kanals. Zeiten sind die lokale Zeit des Symcon-Servers.
 - **Ab Werk aus,** und ein Kanal nimmt nur teil, wenn er im Plan eingeschaltet ist. So schreibt nie ein zweiter Regler denselben Wert (z. B. ein alter Wochenplan für den Flüsterbetrieb).
 - **Schonend:** ein Befehl geht nur raus, wenn sich der Sollwert ändert; nach ca. 45 s wird der gemeldete Wert kontrolliert und der Befehl höchstens dreimal wiederholt, danach steht eine Störung im Status.
-- **Von Hand geändert** (z. B. im Dashboard): bleibt bis zur nächsten Schaltzeit stehen.
+- **Von Hand geändert** (z. B. im Dashboard): bleibt bis zur nächsten Schaltzeit stehen. Der Status zeigt, seit wann (`stateSince`), und das Protokoll bekommt eine Zeile, wenn ein Kanal auf „von Hand geändert“ oder „Störung“ wechselt. Mit `HEISHA_SetSchedule(…, '{"applyNow": true}')` setzt man den Plan sofort wieder durch.
 - **Einschränkungen:** Die Verschiebung gilt nur, solange die Anlage eine Verschiebung meldet (nicht im Direktmodus), und das optionale Taktschutz-Regelwerk der Platine kann sie überschreiben. Die anlageneigene Flüster-Zeitschaltung (an der Fernbedienung) nicht parallel für denselben Zweck nutzen.
 - Für Skripte und andere Module: `HEISHA_GetSchedule()` / `HEISHA_SetSchedule()` (Teil-Update je Kanal, Prüfung im Modul, optimistische Sperre über `revision`).
 

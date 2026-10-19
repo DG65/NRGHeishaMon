@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.39.2 — 2026-10-19
+
+- Zeitplan, Nachvollziehbarkeit (Befund an Dietmars Anlage, 19.10.2026: der Flüster-Kanal stand um 07:43 auf „von Hand geändert", obwohl der Plan um 07:00 auf Aus schalten sollte - die Anlage hatte Aus übernommen, und gegen 07:16 hat etwas die Stufe 3 erneut gesetzt; der Plan hielt sich korrekt an „Nutzer vor Plan", ließ aber nicht erkennen, seit wann und durch wen): Je Kanal liefert `GetSchedule()` jetzt `stateSince` (Unix-Zeit, seit wann der aktuelle Status gilt), und beim Wechsel auf `manual` oder `fault` schreibt das Modul eine Zeile ins Protokoll (`Time schedule: channel quiet is now "manual" (planned 0, heat pump reports 3)`). So lässt sich beim nächsten Mal sagen, wann der Wert überschrieben wurde
+- Zeitplan, neue Aktion `applyNow`: `HEISHA_SetSchedule($id, '{"applyNow": true}')` beendet Handänderungen und Störungen sofort und wendet den Sollwert für jetzt neu an (setzt die Laufzeitzustände zurück, der Plan selbst und `revision` bleiben unverändert) - für eine Schaltfläche „Plan jetzt wieder anwenden" im WP-Monitor
+- Zeitplan, Fehlerbehebung: War der Istwert beim Senden noch unbekannt (z. B. `Quiet_Mode_Level` -1), galt der Befehl bisher als erledigt; ein später bekannter, abweichender Wert wurde dann als Handänderung gewertet, obwohl der Befehl nie angekommen sein konnte. Jetzt bleibt der Kanal `pending`, und der Befehl wird erneut gesendet, sobald der Istwert bekannt und abweichend ist
+
 ## 1.39.1 — 2026-10-19
 
 - Live-Fund beim Einspielen eines Updates (System-Log 18.10.2026, 22:42): Während die Instanz neu lädt, ist das Modulobjekt kurz nicht an den Kernel gebunden ("InstanceInterface is not available"). `Translate()` liefert dann `false`, und `maintainStatsVariable(string $caption)` brach beim Empfang einer `stats`-Nachricht mit einem `TypeError` ab - ein Fehler im Protokoll, die Nachricht ging verloren. `ReceiveData()` prüft das jetzt gleich am Anfang und verwirft Nachrichten in diesem Fenster still (die Platine veröffentlicht regelmäßig neu); danach läuft alles normal weiter. Gleiche Klasse wie die bekannten Reload-Fenster-Fälle bei `ReadProperty…` (CLAUDE.md), hier über `Translate()`

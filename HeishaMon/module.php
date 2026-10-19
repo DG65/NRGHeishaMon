@@ -79,6 +79,10 @@ class HeishaMon extends IPSModule
         ],
         '1.39.1' => [
             'Fix: while the instance reloads (for example during a module update) a received message could stop with an error in the log ("InstanceInterface is not available"). Messages in that short window are now skipped and processed normally afterwards.'
+        ],
+        '1.39.2' => [
+            'New: the time schedule now remembers since when a channel is in its current state ("changed by hand", "fault") and writes a line to the log when a channel changes to it - so you can see when the planned value was overwritten. A new action "apply the schedule again now" ends a manual change at once and applies the planned value for the current time.',
+            'Fix: if the heat pump had not reported the value yet when the schedule sent a command, a value reported later could be mistaken for a manual change. The command is now sent again in that case.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -3109,10 +3113,12 @@ class HeishaMon extends IPSModule
                 $runtime[$key] = ['lastPlanned' => null, 'pending' => false, 'tries' => 0, 'lastSend' => 0, 'state' => 'unavailable'];
                 continue;
             }
+            $stateBefore = (string) ($rec['state'] ?? 'off');
+            $sinceBefore = (int) ($rec['stateSince'] ?? 0);
             $planned = $holding && $rec['lastPlanned'] !== null ? (int) $rec['lastPlanned'] : HeishaSchedule::plannedValue($channel, $now);
             if ($rec['lastPlanned'] !== $planned) {
                 //neue Schaltzeit (oder erster Lauf): Sollwert gilt ab jetzt, ein vorheriger manueller Eingriff endet
-                $rec = ['lastPlanned' => $planned, 'pending' => true, 'tries' => 0, 'lastSend' => 0, 'state' => 'pending', 'lastNewSend' => (int) ($rec['lastNewSend'] ?? 0)];
+                $rec = ['lastPlanned' => $planned, 'pending' => true, 'tries' => 0, 'lastSend' => 0, 'state' => 'pending', 'lastNewSend' => (int) ($rec['lastNewSend'] ?? 0), 'unverified' => false];
             }
             if ($rec['pending']) {
                 if ($info['actual'] === $planned) {
@@ -3135,13 +3141,37 @@ class HeishaMon extends IPSModule
                     $rec['state'] = 'pending';
                     $sent = true;
                     if ($info['actual'] === null) {
-                        //Istwert nie empfangen: nicht pruefbar, einmal senden genuegt
+                        //Istwert unbekannt: nicht pruefbar. Einmal senden, aber NICHT als erledigt werten - eine spaeter
+                        //bekannte Abweichung ist dann keine Handaenderung, sondern der Befehl kam nie an
                         $rec['pending'] = false;
-                        $rec['state'] = 'ok';
+                        $rec['unverified'] = true;
                     }
                 }
             } elseif ($rec['state'] !== 'fault') {
-                $rec['state'] = $info['actual'] === $planned || $info['actual'] === null ? 'ok' : 'manual';
+                if (!empty($rec['unverified'])) {
+                    if ($info['actual'] === null) {
+                        $rec['state'] = 'pending';
+                    } elseif ($info['actual'] === $planned) {
+                        $rec['unverified'] = false;
+                        $rec['state'] = 'ok';
+                    } else {
+                        $rec['unverified'] = false;
+                        $rec['pending'] = true;
+                        $rec['tries'] = 0;
+                        $rec['state'] = 'pending';
+                    }
+                } else {
+                    $rec['state'] = $info['actual'] === $planned || $info['actual'] === null ? 'ok' : 'manual';
+                }
+            }
+            //Seit wann gilt der Status, und bei Handaenderung/Stoerung eine Spur im Protokoll (wer, wann, welcher Wert)
+            if ($rec['state'] !== $stateBefore) {
+                $rec['stateSince'] = $now;
+                if ($rec['state'] === 'manual' || $rec['state'] === 'fault') {
+                    $this->LogMessage(sprintf('Time schedule: channel %s is now "%s" (planned %d, heat pump reports %s)', $key, $rec['state'], $planned, $info['actual'] === null ? 'unknown' : (string) $info['actual']), KL_MESSAGE);
+                }
+            } else {
+                $rec['stateSince'] = $sinceBefore > 0 ? $sinceBefore : $now;
             }
             $runtime[$key] = $rec;
         }
@@ -3256,7 +3286,8 @@ class HeishaMon extends IPSModule
                 'plannedNow'    => $info['available'] ? HeishaSchedule::plannedValue($channel, $now) : null,
                 'actualNow'     => $info['actual'],
                 'nextChangeAt'  => $info['available'] ? HeishaSchedule::nextChange($channel, $now) : 0,
-                'state'         => $active && $channel['enabled'] ? (string) ($runtime[$key]['state'] ?? 'pending') : 'off'
+                'state'         => $active && $channel['enabled'] ? (string) ($runtime[$key]['state'] ?? 'pending') : 'off',
+                'stateSince'    => $active && $channel['enabled'] ? (int) ($runtime[$key]['stateSince'] ?? 0) : 0
             ];
             $entry['reason'] = $this->scheduleStateReason($entry['state'], $active, $channel['enabled']);
             if ($definition['kind'] === 'shift') {
@@ -3283,7 +3314,8 @@ class HeishaMon extends IPSModule
     }
 
     /**
-     * Wochen-Zeitplan aendern. $Json: {"revision": int?, "enabled": bool?, "featureEnabled": bool?, "channels": {kanal:
+     * Wochen-Zeitplan aendern. $Json: {"revision": int?, "enabled": bool?, "featureEnabled": bool?, "applyNow": bool? (Plan jetzt
+     * wieder durchsetzen, beendet Handaenderungen/Stoerungen), "channels": {kanal:
      * {"enabled": bool?, "default": int?, "segments": [{"day","from","to","value"}]?}}}. Teil-Update je Kanal (segments
      * ersetzt die ganze Liste des Kanals); bei jedem Fehler oder abweichender revision wird nichts geaendert.
      * Rueckgabe: ['ok', 'errors' => [['field','message']], 'schedule' => GetSchedule(), 'revision'].
@@ -3306,7 +3338,7 @@ class HeishaMon extends IPSModule
             }
             unset($input['revision']);
         }
-        foreach (['enabled', 'featureEnabled'] as $flag) {
+        foreach (['enabled', 'featureEnabled', 'applyNow'] as $flag) {
             if (array_key_exists($flag, $input) && !is_bool($input[$flag])) {
                 $fail($flag, 'Value must be true or false');
             }
@@ -3329,7 +3361,7 @@ class HeishaMon extends IPSModule
                 $plan['channels'][$key] = $normalized;
             }
         }
-        foreach (array_diff(array_keys($input), ['enabled', 'featureEnabled', 'channels']) as $unknown) {
+        foreach (array_diff(array_keys($input), ['enabled', 'featureEnabled', 'applyNow', 'channels']) as $unknown) {
             $fail((string) $unknown, 'Unknown field');
         }
         if ($errors !== []) {
@@ -3353,6 +3385,11 @@ class HeishaMon extends IPSModule
             $this->RequestAction('Sched_Active', $input['enabled']);
         } elseif ($changed && $featureNow && $this->scheduleIsActive()) {
             //geaenderter Plan gilt sofort fuer jetzt
+            $this->ScheduleTick();
+        }
+        if (($input['applyNow'] ?? false) === true && $featureNow && $this->scheduleIsActive()) {
+            //Plan jetzt wieder durchsetzen: Handaenderungen/Stoerungen enden, der Sollwert fuer jetzt wird neu angewendet
+            $this->WriteAttributeString('SchedRuntime', '{}');
             $this->ScheduleTick();
         }
         return $this->scheduleSetResult([]);
