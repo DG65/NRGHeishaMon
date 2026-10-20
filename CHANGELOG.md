@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.39.3 — 2026-10-20
+
+- `GetSchedule()` und `GetHeatingAutomation()` liefern zusätzlich `lastErrorAt` (Unix-Zeit der letzten abgelehnten Änderung, 0 = keine) neben `lastError` (Hinweis EMS, 20.10.2026: Dietmars Zeitplan stand im Dashboard-Editor wegen eines abgelehnten Speicherversuchs mit ungültigen Abschnitten auf einem Fehler, ohne dass erkennbar war, wie alt er ist). Ein Fehlversuch ist damit kein Dauerzustand: Zeitpunkt und Text gehören zusammen, und die nächste gültige Änderung löscht beides. Geändert wird bei einer Ablehnung weiterhin nichts. Zusätzlich mit Tests abgesichert, dass `SetSchedule` eine reine Teilnutzlast (nur `channels.z1Heat.enabled`, auch zusammen mit `revision` und dem Plan-Schalter `enabled`) sauber annimmt und die vorhandenen Abschnitte erhält
+
 ## 1.39.2 — 2026-10-19
 
 - Zeitplan, Nachvollziehbarkeit (Befund an Dietmars Anlage, 19.10.2026: der Flüster-Kanal stand um 07:43 auf „von Hand geändert", obwohl der Plan um 07:00 auf Aus schalten sollte - die Anlage hatte Aus übernommen, und gegen 07:16 hat etwas die Stufe 3 erneut gesetzt; der Plan hielt sich korrekt an „Nutzer vor Plan", ließ aber nicht erkennen, seit wann und durch wen): Je Kanal liefert `GetSchedule()` jetzt `stateSince` (Unix-Zeit, seit wann der aktuelle Status gilt), und beim Wechsel auf `manual` oder `fault` schreibt das Modul eine Zeile ins Protokoll (`Time schedule: channel quiet is now "manual" (planned 0, heat pump reports 3)`). So lässt sich beim nächsten Mal sagen, wann der Wert überschrieben wurde

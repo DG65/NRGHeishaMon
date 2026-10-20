@@ -83,6 +83,9 @@ class HeishaMon extends IPSModule
         '1.39.2' => [
             'New: the time schedule now remembers since when a channel is in its current state ("changed by hand", "fault") and writes a line to the log when a channel changes to it - so you can see when the planned value was overwritten. A new action "apply the schedule again now" ends a manual change at once and applies the planned value for the current time.',
             'Fix: if the heat pump had not reported the value yet when the schedule sent a command, a value reported later could be mistaken for a manual change. The command is now sent again in that case.'
+        ],
+        '1.39.3' => [
+            'New: the interface of the time schedule and of the heating automation now also reports when the last rejected change happened ("lastErrorAt"), so a failed attempt is not mistaken for a permanent problem. The next valid change clears the message.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -2561,6 +2564,7 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeBoolean('HeatAutoFault', false);
         $this->RegisterAttributeString('HeatAutoLast', '{}');
         $this->RegisterAttributeString('HeatAutoLastError', '');
+        $this->RegisterAttributeInteger('HeatAutoLastErrorAt', 0);
         $this->RegisterAttributeString('HeatAutoPriceRing', '[]');
         $this->RegisterAttributeInteger('HeatAutoBlockStart', 0);
         $this->RegisterAttributeString('HeatAutoBlockLog', '[]');
@@ -3000,6 +3004,7 @@ class HeishaMon extends IPSModule
         //Laufzeitzustand je Kanal: letzter Sollwert, offener Befehl, Versuche, Status
         $this->RegisterAttributeString('SchedRuntime', '{}');
         $this->RegisterAttributeString('SchedLastError', '');
+        $this->RegisterAttributeInteger('SchedLastErrorAt', 0);
         $this->RegisterTimer('SchedTick', 0, 'HEISHA_ScheduleTick($_IPS[\'TARGET\']);');
     }
 
@@ -3307,6 +3312,7 @@ class HeishaMon extends IPSModule
             'granularityMin'          => HeishaSchedule::GRANULARITY_MIN,
             'revision'                => HeishaSchedule::revision($plan),
             'lastError'               => $lastError === '' ? null : $lastError,
+            'lastErrorAt'             => $lastError === '' ? 0 : (int) $this->ReadAttributeInteger('SchedLastErrorAt'),
             'boardRulesActive'        => $rulesID === 0 ? null : ((int) GetValue($rulesID)) > 0,
             'unitQuietScheduleActive' => $quietScheduleID === 0 ? null : (bool) GetValue($quietScheduleID),
             'channels'                => $channels
@@ -3401,6 +3407,8 @@ class HeishaMon extends IPSModule
             fn ($e) => ($e['field'] !== '' ? $e['field'] . ': ' : '') . $e['message'],
             $errors
         )));
+        //Zeitpunkt der letzten Ablehnung (0 = keine): ein Fehlversuch ist kein Dauerzustand, der naechste gueltige Set loescht beides
+        $this->WriteAttributeInteger('SchedLastErrorAt', $errors === [] ? 0 : time());
         $schedule = $this->GetSchedule();
         return ['ok' => $errors === [], 'errors' => $errors, 'schedule' => $schedule, 'revision' => $schedule['revision']];
     }
@@ -4218,6 +4226,7 @@ class HeishaMon extends IPSModule
             'nextSwitchAllowedAt' => $running && $since > 0 ? ($state === 'blocked' ? $since + (int) $this->ReadPropertyInteger('HeatAutoPriceBlockMaxHours') * 3600 : $since + (int) round($holdHours * 3600)) : 0,
             'evaluatedAt'         => $last['at'] ?? 0,
             'lastError'           => $lastError === '' ? null : $lastError,
+            'lastErrorAt'         => $lastError === '' ? 0 : (int) $this->ReadAttributeInteger('HeatAutoLastErrorAt'),
             'config'            => $config,
             'configRevision'    => $this->heatAutoRevision(),
             'limits'            => $limits,
@@ -4377,6 +4386,7 @@ class HeishaMon extends IPSModule
             fn ($e) => ($e['field'] !== '' ? $e['field'] . ': ' : '') . $e['message'],
             $errors
         )));
+        $this->WriteAttributeInteger('HeatAutoLastErrorAt', $errors === [] ? 0 : time());
         return [
             'ok'             => $errors === [],
             'errors'         => $errors,
