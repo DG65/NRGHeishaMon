@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.39.4 — 2026-10-23
+
+- Fehlerbehebung (Befund aus Tessies Symcon-Review, über EMS gemeldet, SUITE.md Store-Review-Punkt 18): Bei `VARIABLE_PRESENTATION_SLIDER` müssen `MIN`, `MAX` und `STEP_SIZE` zum Typ der Variable passen. `main/DHW_Target_Temp` ist ein Float, trug aber ganzzahlige Grenzen (40 / 75 / 1), was beim Anlegen „Der Parameter MAX hat einen falschen Typ" ergeben kann. `buildPresentation()` wandelt die Grenzen jetzt nach `kind` um (`float` → Float, sonst Integer); die Themen-Tabelle bleibt unverändert. Neuer Prüfstand: für jede Schieberegler-Variable wird der Typ der Grenzen gegen den Variablentyp geprüft
+
 ## 1.39.3 — 2026-10-20
 
 - `GetSchedule()` und `GetHeatingAutomation()` liefern zusätzlich `lastErrorAt` (Unix-Zeit der letzten abgelehnten Änderung, 0 = keine) neben `lastError` (Hinweis EMS, 20.10.2026: Dietmars Zeitplan stand im Dashboard-Editor wegen eines abgelehnten Speicherversuchs mit ungültigen Abschnitten auf einem Fehler, ohne dass erkennbar war, wie alt er ist). Ein Fehlversuch ist damit kein Dauerzustand: Zeitpunkt und Text gehören zusammen, und die nächste gültige Änderung löscht beides. Geändert wird bei einer Ablehnung weiterhin nichts. Zusätzlich mit Tests abgesichert, dass `SetSchedule` eine reine Teilnutzlast (nur `channels.z1Heat.enabled`, auch zusammen mit `revision` und dem Plan-Schalter `enabled`) sauber annimmt und die vorhandenen Abschnitte erhält

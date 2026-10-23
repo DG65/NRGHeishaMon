@@ -86,6 +86,9 @@ class HeishaMon extends IPSModule
         ],
         '1.39.3' => [
             'New: the interface of the time schedule and of the heating automation now also reports when the last rejected change happened ("lastErrorAt"), so a failed attempt is not mistaken for a permanent problem. The next valid change clears the message.'
+        ],
+        '1.39.4' => [
+            'Fix: the value ranges of the sliders now always have the type of their variable (whole numbers for integer values, decimal numbers for decimal values such as the hot water target temperature). Before, Symcon could log the warning "The parameter MAX has the wrong type" when creating the variable.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -4783,11 +4786,14 @@ class HeishaMon extends IPSModule
             case 'int':
             case 'float':
                 if (array_key_exists('set', $definition) && array_key_exists('min', $definition)) {
+                    //Grenzen muessen zum Variablentyp passen (Float => float, Integer => int), sonst
+                    //meldet Symcon beim Anlegen "Der Parameter MAX hat einen falschen Typ" (Store-Review)
+                    $asType = $definition['kind'] === 'float' ? 'floatval' : 'intval';
                     return [
                         'PRESENTATION' => VARIABLE_PRESENTATION_SLIDER,
-                        'MIN'          => $definition['min'],
-                        'MAX'          => $definition['max'],
-                        'STEP_SIZE'    => $definition['step'] ?? 1,
+                        'MIN'          => $asType($definition['min']),
+                        'MAX'          => $asType($definition['max']),
+                        'STEP_SIZE'    => $asType($definition['step'] ?? 1),
                         'SUFFIX'       => $definition['suffix'] ?? '',
                         'DIGITS'       => $definition['digits'] ?? 0
                     ];
