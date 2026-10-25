@@ -89,6 +89,9 @@ class HeishaMon extends IPSModule
         ],
         '1.39.4' => [
             'Fix: the value ranges of the sliders now always have the type of their variable (whole numbers for integer values, decimal numbers for decimal values such as the hot water target temperature). Before, Symcon could log the warning "The parameter MAX has the wrong type" when creating the variable.'
+        ],
+        '1.39.5' => [
+            'Fix: values that are only displayed and cannot be changed (for example the standardized operating mode, the heating automation state and read-only status values such as the heating mode) are now shown as value display with a text for each value instead of a selection. Symcon does not allow a selection for variables without an action: they could not be edited in the console and the archive could not be switched on.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -2605,10 +2608,7 @@ class HeishaMon extends IPSModule
         foreach ([0 => 'Heating off (hot water only)', 1 => 'Heating', 2 => 'Cooling', 3 => 'Heating blocked (high price)'] as $value => $caption) {
             $options[] = ['Value' => $value, 'Caption' => $this->Translate($caption), 'IconActive' => false, 'IconValue' => '', 'Color' => -1];
         }
-        $this->MaintainVariable('HeatAuto_State', $this->Translate('Heating automation: state'), VARIABLETYPE_INTEGER, [
-            'PRESENTATION' => VARIABLE_PRESENTATION_ENUMERATION,
-            'OPTIONS'      => json_encode($options)
-        ], 271, true);
+        $this->MaintainVariable('HeatAuto_State', $this->Translate('Heating automation: state'), VARIABLETYPE_INTEGER, $this->displayOnlyOptionsPresentation($options), 271, true);
         $this->MaintainVariable('HeatAuto_Reason', $this->Translate('Heating automation: reason'), VARIABLETYPE_STRING, [
             'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION
         ], 272, true);
@@ -4593,7 +4593,8 @@ class HeishaMon extends IPSModule
                 'Color'       => -1
             ];
         }
-        $presentation = ['PRESENTATION' => VARIABLE_PRESENTATION_ENUMERATION, 'OPTIONS' => json_encode($options)];
+        //Nur Anzeige, keine Variablenaktion: ENUMERATION waere dafuer nicht zulaessig (siehe displayOnlyOptionsPresentation)
+        $presentation = $this->displayOnlyOptionsPresentation($options);
         $variableID = @$this->GetIDForIdent('Operating_Mode_Norm');
         if ($variableID !== false) {
             $current = @IPS_GetVariablePresentation($variableID);
@@ -4724,6 +4725,27 @@ class HeishaMon extends IPSModule
         return true;
     }
 
+    /**
+     * Klartext je Wert fuer Variablen OHNE Variablenaktion. VARIABLE_PRESENTATION_ENUMERATION ist nur fuer
+     * Variablen mit Aktion zulaessig: ohne sie laesst sich die Variable in der Konsole nicht mehr speichern
+     * ("nicht mit der Konfiguration der Variablen kompatibel") und das Archiv nicht einschalten (SUITE.md
+     * Stolperstein 9, Nachtrag 25.10.2026). Die Wertanzeige nimmt dafuer ColorActive/ColorValue statt Color.
+     */
+    private function displayOnlyOptionsPresentation(array $enumerationOptions): array
+    {
+        $options = [];
+        foreach ($enumerationOptions as $option) {
+            unset($option['Color']);
+            $option['ColorActive'] = false;
+            $option['ColorValue'] = -1;
+            $options[] = $option;
+        }
+        return [
+            'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
+            'OPTIONS'      => json_encode($options)
+        ];
+    }
+
     private function buildPresentation(array $definition): array
     {
         switch ($definition['kind']) {
@@ -4777,6 +4799,9 @@ class HeishaMon extends IPSModule
                         'IconValue'   => '',
                         'Color'       => -1
                     ];
+                }
+                if (!array_key_exists('set', $definition)) {
+                    return $this->displayOnlyOptionsPresentation($options);
                 }
                 return [
                     'PRESENTATION' => VARIABLE_PRESENTATION_ENUMERATION,

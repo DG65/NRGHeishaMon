@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.39.5 — 2026-10-25
+
+- Fehlerbehebung (Verbund-Befund, SUITE.md Stolperstein 9, Nachtrag 25.10.2026, bei RoboHub unter Symcon 9.0 gefunden): `VARIABLE_PRESENTATION_ENUMERATION` ist nur für Variablen mit Variablenaktion zulässig. Ohne `EnableAction` lässt sich die Variable in der Konsole nicht mehr speichern („nicht mit der Konfiguration der Variablen kompatibel") und das Archiv nicht einschalten. Betroffen waren die zwölf nur lesbaren Variablen: `Operating_Mode_Norm`, `HeatAuto_State` und die zehn nur lesbaren Aufzählungs-Topics (zum Beispiel `Heating_Mode`, `Cooling_Mode`, `ThreeWay_Valve_State`, `Liquid_Type`, `Z1_Mixing_Valve`). Sie sind jetzt `VARIABLE_PRESENTATION_VALUE_PRESENTATION` mit OPTIONS (`Value`, `Caption`, `IconActive`, `IconValue`, `ColorActive`, `ColorValue`); die Klartexte bleiben gleich. Bestehende Variablen werden beim Übernehmen der Instanz umgestellt. Aufzählungen bleiben bei den Variablen mit Aktion (zum Beispiel Betriebsart, SmartGrid-Modus). Neuer Prüfstand: jede Aufzählung gehört zu einer Variable mit Aktion
+
 ## 1.39.4 — 2026-10-23
 
 - Fehlerbehebung (Befund aus Tessies Symcon-Review, über EMS gemeldet, SUITE.md Store-Review-Punkt 18): Bei `VARIABLE_PRESENTATION_SLIDER` müssen `MIN`, `MAX` und `STEP_SIZE` zum Typ der Variable passen. `main/DHW_Target_Temp` ist ein Float, trug aber ganzzahlige Grenzen (40 / 75 / 1), was beim Anlegen „Der Parameter MAX hat einen falschen Typ" ergeben kann. `buildPresentation()` wandelt die Grenzen jetzt nach `kind` um (`float` → Float, sonst Integer); die Themen-Tabelle bleibt unverändert. Neuer Prüfstand: für jede Schieberegler-Variable wird der Typ der Grenzen gegen den Variablentyp geprüft
