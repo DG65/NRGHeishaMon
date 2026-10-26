@@ -92,6 +92,9 @@ class HeishaMon extends IPSModule
         ],
         '1.39.5' => [
             'Fix: values that are only displayed and cannot be changed (for example the standardized operating mode, the heating automation state and read-only status values such as the heating mode) are now shown as value display with a text for each value instead of a selection. Symcon does not allow a selection for variables without an action: they could not be edited in the console and the archive could not be switched on.'
+        ],
+        '1.39.6' => [
+            'Fix: since version 1.39.5 the read-only status values (for example the standardized operating mode, the heating automation state and the heating mode) showed a bare number instead of text. They show the text for each value again.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -4726,23 +4729,35 @@ class HeishaMon extends IPSModule
     }
 
     /**
-     * Klartext je Wert fuer Variablen OHNE Variablenaktion. VARIABLE_PRESENTATION_ENUMERATION ist nur fuer
-     * Variablen mit Aktion zulaessig: ohne sie laesst sich die Variable in der Konsole nicht mehr speichern
-     * ("nicht mit der Konfiguration der Variablen kompatibel") und das Archiv nicht einschalten (SUITE.md
-     * Stolperstein 9, Nachtrag 25.10.2026). Die Wertanzeige nimmt dafuer ColorActive/ColorValue statt Color.
+     * Klartext je Wert fuer ganzzahlige Variablen OHNE Variablenaktion. VARIABLE_PRESENTATION_ENUMERATION ist nur
+     * fuer Variablen mit Aktion zulaessig: ohne sie laesst sich die Variable in der Konsole nicht mehr speichern
+     * und das Archiv nicht einschalten (SUITE.md Stolperstein 9, 25.10.2026). Die OPTIONS der Wertanzeige wirken
+     * aber nur bei Boolean und String - bei Integer/Float ignoriert Symcon sie still und zeigt die nackte Zahl
+     * (Korrektur 26.10.2026, RoboHub live geprueft). Deshalb je Wert ein Intervall (Min = Max) mit Konstante.
      */
     private function displayOnlyOptionsPresentation(array $enumerationOptions): array
     {
-        $options = [];
+        $intervals = [];
         foreach ($enumerationOptions as $option) {
-            unset($option['Color']);
-            $option['ColorActive'] = false;
-            $option['ColorValue'] = -1;
-            $options[] = $option;
+            $intervals[] = [
+                'IntervalMinValue' => $option['Value'],
+                'IntervalMaxValue' => $option['Value'],
+                'ConstantActive'   => true,
+                'ConstantValue'    => $option['Caption'],
+                'ConversionFactor' => 1,
+                'PrefixActive'     => false,
+                'SuffixActive'     => false,
+                'DigitsActive'     => false,
+                'IconActive'       => false,
+                'IconValue'        => '',
+                'ColorActive'      => false,
+                'ColorValue'       => -1
+            ];
         }
         return [
-            'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
-            'OPTIONS'      => json_encode($options)
+            'PRESENTATION'     => VARIABLE_PRESENTATION_VALUE_PRESENTATION,
+            'INTERVALS_ACTIVE' => true,
+            'INTERVALS'        => json_encode($intervals)
         ];
     }
 
