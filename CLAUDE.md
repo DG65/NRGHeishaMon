@@ -58,9 +58,7 @@ Variablen-Idents werden **nie** umbenannt — sie sind die Schnittstelle für Sk
 
 - `beta` — Entwicklung und schnelle Auslieferung an Tester (Installation per GitHub-URL)
 - `main` — geprüfter Stand, den Nutzer über den IP-Symcon Module Store beziehen
-- `ems-integration` — verbundweiter Zweig für die laufende EMS-Integrationsphase, abgezweigt von `beta`
-
-**Solange die EMS-Integrationsphase läuft (seit 25.07.2026, verbundweite Anweisung):** ausnahmslos alles auf `ems-integration` pushen, keine Ausnahme mehr für „sichere" Fixes direkt auf `beta`. Erst nach Bewährung und Freigabe wandert der Stand von `ems-integration` zurück nach `beta`. Diese Regel endet erst durch eine ausdrückliche neue Ansage — nicht von selbst nach einer gewissen Zeit annehmen, dass sie ausgelaufen ist.
+Seit 27.10.2026 (Dietmar) sind im Symcon-Store alle Betas auf Stable umgestellt: `main` wird jetzt wirklich ausgeliefert, `beta` und `main` stehen nach jedem Release auf demselben Stand. Der frühere Zweig `ems-integration` (EMS-Integrationsphase seit 25.07.2026) ist abgeschafft und gelöscht; es wird nur noch auf `beta` und `main` gepusht, jeder Push nur nach ausdrücklicher Freigabe durch Dietmar.
 
 Die Übernahme nach `main` entscheidet Dietmar von sich aus (nicht nachfragen, siehe Feedback-Notiz „beta→main-Freigabe" im Gedächtnis).
 
@@ -70,7 +68,7 @@ Dietmar hat den Symcon-Store-Start bestätigt, HeishaMon ist eines der startrele
 
 **Store-Status (15.09.2026):** HeishaMon ist jetzt im Symcon-Store gelistet, Kanal **Beta**. Stable-Kanal noch offen (main-Branch ist Store-seitig noch der alte MIT-Stand, siehe LICENSE_URL-Hinweis im Code) - Übernahme main entscheidet Dietmar selbst (siehe Feedback-Notiz „beta→main-Freigabe" im Gedächtnis).
 
-**Migrationsvergleich vor jedem Push auf `beta`** (SUITE.md 9e, neu 13.09.2026): `php /Users/dietmar/Nextcloud/Claude/.tools/migrationsvergleich.php . origin/beta HEAD` ausführen. Meldet BRUCH (Modul/GUID entfernt, Präfix-, Property-/Ident-Entfernung oder Typänderung, öffentliche Funktion entfernt/Parameterzahl geändert, Vertrags-Major-Sprung), WARNUNG, HINWEIS — Rückgabewert 1 bedeutet: vor dem Push klären, nicht committen. Ziel: kein Release, das bei Nutzern eine Migration erzwingt. Am 13.09.2026 selbst gegengeprüft: `origin/beta` → `HEAD` (ems-integration) ohne Bruch (Exit 0).
+**Migrationsvergleich vor jedem Push auf `beta`** (SUITE.md 9e, neu 13.09.2026): `php /Users/dietmar/Nextcloud/Claude/.tools/migrationsvergleich.php . origin/beta HEAD` ausführen. Meldet BRUCH (Modul/GUID entfernt, Präfix-, Property-/Ident-Entfernung oder Typänderung, öffentliche Funktion entfernt/Parameterzahl geändert, Vertrags-Major-Sprung), WARNUNG, HINWEIS — Rückgabewert 1 bedeutet: vor dem Push klären, nicht committen. Ziel: kein Release, das bei Nutzern eine Migration erzwingt. Am 13.09.2026 selbst gegengeprüft: `origin/beta` → `HEAD` ohne Bruch (Exit 0).
 
 ## Tests
 
