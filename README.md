@@ -282,6 +282,7 @@ Ab Version 1.30.0 liefert `HEISHA_GetHeatingCurve` je Zone zusätzlich `shift` (
 
 - **📖 Dokumentation & Hilfe** (eingeklappt): allgemeine Erläuterungen zur Instanz, trägt die aktuelle Modulversion in der Überschrift.
 - **🆕 Neu in Version …** (aufgeklappt): erscheint nach einem Update mit den wichtigsten Neuerungen, bis „Verstanden" geklickt wird — dann erst bei der nächsten Version wieder.
+- **🪟 Formular: Aufbau** (eingeklappt, nach den Fachbereichen, ab Version 1.40.0): Je Bereich (1-Wire, Verknüpfungsstruktur, Energiezähler, Heizungs-Automatik, Zeitplan, Energiespar-Prüfung und -Regelwerke, Neustart-Wächter, Archivierung, Zusatzbefehle) legen Sie fest, ob er beim Öffnen **aufgeklappt**, **zugeklappt** oder **ausgeblendet** ist und an welcher **Position** er steht (1–99). Kein Haken heißt Standard; bei mehreren Haken gilt ausgeblendet vor zugeklappt vor aufgeklappt. Ausgeblendete Bereiche behalten ihre Einstellungen und arbeiten weiter, nur die Anzeige fehlt. Die Einstellung wirkt nach „Übernehmen“ beim nächsten Öffnen; „Auf Standard zurücksetzen“ stellt alles zurück (per Skript: `HEISHA_ResetFormLayout($id)`, speichert nicht von selbst). Fest bleiben die Bereiche oben (Zweck, Neuigkeiten, Dokumentation) und unten (Forum, Über dieses Modul), die Verbindungsfelder und die Datenpunkt-Liste.
 - **Forum-Hinweis** am Ende der Maske: einmalig, lässt sich dauerhaft ausblenden.
 
 ## Hinweise

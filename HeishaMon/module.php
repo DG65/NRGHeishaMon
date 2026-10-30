@@ -95,6 +95,9 @@ class HeishaMon extends IPSModule
         ],
         '1.39.6' => [
             'Fix: since version 1.39.5 the read-only status values (for example the standardized operating mode, the heating automation state and the heating mode) showed a bare number instead of text. They show the text for each value again.'
+        ],
+        '1.40.0' => [
+            'New: you can now choose the layout of the configuration form: in the new panel "Form layout" you set for each area (1-Wire, link structure, energy meter, heating automation, time schedule and so on) whether it is expanded, collapsed or hidden when the form opens, and at which position it stands. Hidden areas keep their settings and keep working. Nothing changes until you choose something.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -143,6 +146,8 @@ class HeishaMon extends IPSModule
         //1-Wire-Temperatursensoren (z.B. DS18B20) am HeishaMon: dynamisches Topic pro
         //Sensoradresse, daher eigene Erkennungs-/Benennungsliste statt der festen TopicMap
         $this->RegisterPropertyString('OneWireSensors', '[]');
+        //Formular: Aufbau (SUITE.md Einheitliche Formular-Optik 3a): je Fachpanel Aufklapp-Zustand und Position
+        $this->RegisterPropertyString('FormLayout', '[]');
         $this->RegisterAttributeString('SeenOneWire', '[]');
 
         //Zusaetzliche, reine Schreibbefehle ohne Rueckmeldung von der Waermepumpe (SmartGrid-
@@ -287,6 +292,9 @@ class HeishaMon extends IPSModule
             }
             $element['items'] = $items;
         });
+
+        //Fachpanels nach "Formular: Aufbau" ordnen und das Aufbau-Panel dahinter setzen (SUITE.md 3a)
+        $this->applyFormLayout($form['elements']);
 
         //Forum-Hinweis am Ende, solange nicht bestaetigt
         $forumHint = $this->buildForumHint();
@@ -532,6 +540,209 @@ class HeishaMon extends IPSModule
      * Sucht rekursiv (auch innerhalb von Panels/RowLayouts) das Formularelement mit dem
      * uebergebenen Namen und wendet den Callback per Referenz darauf an.
      */
+    /**
+     * Die waehlbaren Fachpanels des Formulars (Name des ExpansionPanels in form.json => stabiler Schluessel).
+     * Die Schluessel bleiben, auch wenn sich eine Beschriftung aendert; die Reihenfolge hier ist nur die
+     * Dokumentation, die Standardreihenfolge ergibt sich aus form.json. Fest stehen die Panels oben (Zweck,
+     * Neu, Dokumentation) und unten (Forum, Ueber dieses Modul) sowie die Felder davor und die Datenpunkt-Liste.
+     */
+    private const FORM_PANELS = [
+        'OneWirePanel'       => 'onewire',
+        'LinkTreePanel'      => 'links',
+        'MeterPanel'         => 'meter',
+        'HeatAutoPanel'      => 'heatauto',
+        'SchedulePanel'      => 'schedule',
+        'EnergyCheckPanel'   => 'energycheck',
+        'RulesetsPanel'      => 'rulesets',
+        'WatchdogPanel'      => 'watchdog',
+        'ArchivePanel'       => 'archive',
+        'ExtraCommandsPanel' => 'extra'
+    ];
+
+    /**
+     * Die einklappbaren Fachpanels der obersten Ebene in der Reihenfolge der Formulardatei: Schluessel => Panel.
+     */
+    private function formLayoutPanels(array $elements): array
+    {
+        $panels = [];
+        foreach ($elements as $element) {
+            $key = self::FORM_PANELS[$element['name'] ?? ''] ?? null;
+            if (($element['type'] ?? '') === 'ExpansionPanel' && $key !== null) {
+                $panels[$key] = $element;
+            }
+        }
+        return $panels;
+    }
+
+    /**
+     * Reihenfolge und Aufklapp-Zustand der Fachpanels aus der Einstellung "FormLayout". Unbekannte oder
+     * fehlende Eintraege fallen auf die Standardreihenfolge und "Standard" zurueck.
+     *
+     * @param string[] $keys Schluessel der Fachpanels in Standardreihenfolge
+     * @return array Schluessel => ['open' => 'std'|'open'|'closed'|'hidden', 'pos' => int, 'idx' => int], in der anzuwendenden Reihenfolge
+     */
+    private function formLayout(array $keys): array
+    {
+        $saved = json_decode((string) $this->ReadPropertyString('FormLayout'), true);
+        $byKey = [];
+        foreach (is_array($saved) ? $saved : [] as $row) {
+            if (is_array($row) && isset($row['Key'])) {
+                $byKey[(string) $row['Key']] = $row;
+            }
+        }
+        $layout = [];
+        foreach (array_values($keys) as $index => $key) {
+            $row = $byKey[$key] ?? [];
+            //Widerspruch: ausgeblendet vor zugeklappt vor aufgeklappt, kein Haken = Standard
+            $open = !empty($row['Hidden']) ? 'hidden' : (!empty($row['Closed']) ? 'closed' : (!empty($row['Opened']) ? 'open' : 'std'));
+            $layout[$key] = [
+                'open' => $open,
+                'pos'  => isset($row['Pos']) ? max(1, min(99, (int) $row['Pos'])) : $index + 1,
+                'idx'  => $index
+            ];
+        }
+        uasort($layout, fn ($a, $b) => [$a['pos'], $a['idx']] <=> [$b['pos'], $b['idx']]);
+        return $layout;
+    }
+
+    /**
+     * Anzeigename eines Fachpanels in der Liste: uebersetzt, ohne den Zusatz in Klammern ("(optional ...)").
+     */
+    private function formLayoutPanelName(array $panel, string $key): string
+    {
+        $caption = (string) $this->Translate((string) ($panel['caption'] ?? $key));
+        $name = trim((string) preg_replace('/\s*\(.*$/u', '', $caption));
+        return $name === '' ? $key : $name;
+    }
+
+    private function formLayoutRows(array $layout, array $panels): array
+    {
+        $rows = [];
+        foreach ($layout as $key => $entry) {
+            $rows[] = [
+                'Key'    => $key,
+                'Panel'  => $this->formLayoutPanelName($panels[$key], $key),
+                'Opened' => $entry['open'] === 'open',
+                'Closed' => $entry['open'] === 'closed',
+                'Hidden' => $entry['open'] === 'hidden',
+                'Pos'    => $entry['pos']
+            ];
+        }
+        return $rows;
+    }
+
+    /**
+     * Ordnet die Fachpanels nach der Einstellung "Formular: Aufbau" und setzt das Aufbau-Panel dahinter.
+     * Ausgeblendete Panels bleiben mit visible=false im Formular, damit ihre Werte beim Uebernehmen
+     * erhalten bleiben und der Bereich weiterarbeitet (SUITE.md 3a).
+     */
+    private function applyFormLayout(array &$elements)
+    {
+        $panels = $this->formLayoutPanels($elements);
+        if (count($panels) === 0) {
+            return;
+        }
+        $layout = $this->formLayout(array_keys($panels));
+
+        $position = null;
+        $rest = [];
+        foreach ($elements as $element) {
+            if (($element['type'] ?? '') === 'ExpansionPanel' && isset(self::FORM_PANELS[$element['name'] ?? ''])) {
+                $position ??= count($rest);
+                continue;
+            }
+            $rest[] = $element;
+        }
+
+        $ordered = [];
+        $hidden = [];
+        foreach ($layout as $key => $entry) {
+            $panel = $panels[$key];
+            if ($entry['open'] === 'open') {
+                $panel['expanded'] = true;
+            } elseif ($entry['open'] === 'closed') {
+                $panel['expanded'] = false;
+            } elseif ($entry['open'] === 'hidden') {
+                $panel['visible'] = false;
+                $hidden[] = trim((string) preg_replace('/^[^\p{L}\p{N}]+/u', '', $this->formLayoutPanelName($panel, $key)));
+            }
+            $ordered[] = $panel;
+        }
+        $ordered[] = $this->buildLayoutPanel($layout, $panels, $hidden);
+
+        array_splice($rest, (int) $position, 0, $ordered);
+        $elements = $rest;
+    }
+
+    private function buildLayoutPanel(array $layout, array $panels, array $hidden): array
+    {
+        $caption = $this->Translate('🪟  Form layout');
+        if (count($hidden) > 0) {
+            $caption .= ' (' . sprintf($this->Translate('%d hidden'), count($hidden)) . ')';
+        }
+        $items = [];
+        if (count($hidden) > 0) {
+            $items[] = [
+                'type'    => 'Label',
+                'caption' => '🙈 ' . $this->Translate('Hidden:') . ' ' . implode(', ', $hidden) . ' - ' . $this->Translate('to show them again, remove the tick at "Hidden". Hidden areas keep working, only the display is missing.')
+            ];
+        }
+        $items[] = [
+            'type'    => 'Label',
+            'caption' => $this->Translate('Here you decide which areas are expanded when the form opens and in which order they appear. Symcon does not remember expanding and collapsing, so the setting applies every time the form opens. It takes effect after "Apply" the next time you open the form.')
+        ];
+        $items[] = [
+            'type'    => 'Label',
+            'caption' => $this->Translate('No tick means "default": as the module intends it. The position is a number; with equal numbers the default order stays. "Hidden" takes an area out of the display without losing anything: its settings are kept and keep working (meant for areas you rarely need). To show it again remove the tick at "Hidden" or click "Reset to default". With several ticks set, "Hidden" wins over "Collapsed", which wins over "Expanded". The areas above (purpose, news, documentation) and below (forum, about this module), the connection fields and the datapoint list stay where they are and cannot be hidden.')
+        ];
+        $items[] = [
+            'type'                        => 'List',
+            'name'                        => 'FormLayout',
+            'caption'                     => $this->Translate('Areas'),
+            'rowCount'                    => count($layout),
+            'add'                         => false,
+            'delete'                      => false,
+            'loadValuesFromConfiguration' => false,
+            'values'                      => $this->formLayoutRows($layout, $panels),
+            'columns'                     => [
+                ['caption' => $this->Translate('Area'), 'name' => 'Panel', 'width' => 'auto', 'add' => ''],
+                ['caption' => $this->Translate('Key'), 'name' => 'Key', 'width' => '0px', 'visible' => false, 'add' => '', 'save' => true],
+                ['caption' => $this->Translate('Expanded'), 'name' => 'Opened', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                ['caption' => $this->Translate('Collapsed'), 'name' => 'Closed', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                ['caption' => $this->Translate('🙈 Hidden'), 'name' => 'Hidden', 'width' => '130px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                ['caption' => $this->Translate('Position'), 'name' => 'Pos', 'width' => '100px', 'add' => 1, 'edit' => ['type' => 'NumberSpinner', 'minimum' => 1, 'maximum' => 99]]
+            ]
+        ];
+        $items[] = [
+            'type'    => 'Button',
+            'caption' => $this->Translate('↩️ Reset to default'),
+            'onClick' => 'echo HEISHA_ResetFormLayout($id);'
+        ];
+        return [
+            'type'     => 'ExpansionPanel',
+            'name'     => 'FormLayoutPanel',
+            'caption'  => $caption,
+            'expanded' => false,
+            'items'    => $items
+        ];
+    }
+
+    /**
+     * Setzt Aufklapp-Zustand und Reihenfolge der Fachpanels im OFFENEN Formular auf den Standard. Gespeichert
+     * wird erst, wenn der Nutzer "Uebernehmen" klickt (keine Selbstpersistenz).
+     */
+    public function ResetFormLayout(): string
+    {
+        $form = json_decode((string) file_get_contents(__DIR__ . '/form.json'), true);
+        $panels = $this->formLayoutPanels(is_array($form) ? ($form['elements'] ?? []) : []);
+        $layout = [];
+        foreach (array_keys($panels) as $index => $key) {
+            $layout[$key] = ['open' => 'std', 'pos' => $index + 1, 'idx' => $index];
+        }
+        $this->UpdateFormField('FormLayout', 'values', json_encode($this->formLayoutRows($layout, $panels), JSON_UNESCAPED_UNICODE));
+        return $this->Translate('ℹ️ Reset to default. Click "Apply" below to save.');
+    }
+
     private function patchFormElement(array &$elements, string $name, callable $callback)
     {
         foreach ($elements as &$element) {

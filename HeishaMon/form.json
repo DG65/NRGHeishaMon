@@ -165,6 +165,7 @@
         },
         {
             "type": "ExpansionPanel",
+            "name": "OneWirePanel",
             "caption": "1-Wire sensors (optional)",
             "items": [
                 {
@@ -219,6 +220,7 @@
         },
         {
             "type": "ExpansionPanel",
+            "name": "LinkTreePanel",
             "caption": "Link structure (optional)",
             "items": [
                 {
@@ -239,6 +241,7 @@
         },
         {
             "type": "ExpansionPanel",
+            "name": "MeterPanel",
             "caption": "External energy meter (optional, for measured COP / performance factor)",
             "items": [
                 {
@@ -351,6 +354,7 @@
         },
         {
             "type": "ExpansionPanel",
+            "name": "HeatAutoPanel",
             "caption": "🌡️ Heating automation (optional)",
             "items": [
                 {
@@ -777,6 +781,7 @@
         },
         {
             "type": "ExpansionPanel",
+            "name": "SchedulePanel",
             "caption": "🗓️ Time schedule for ECO / comfort and quiet mode (optional)",
             "items": [
                 {
@@ -822,6 +827,7 @@
         },
         {
             "type": "ExpansionPanel",
+            "name": "RulesetsPanel",
             "caption": "⚙️ Energy saving rulesets (optional, runs on the HeishaMon board)",
             "items": [
                 {
@@ -933,6 +939,7 @@
         },
         {
             "type": "ExpansionPanel",
+            "name": "WatchdogPanel",
             "caption": "🔄 Reboot watchdog (optional)",
             "items": [
                 {
@@ -956,6 +963,7 @@
         },
         {
             "type": "ExpansionPanel",
+            "name": "ArchivePanel",
             "caption": "📊 Archiving (optional, for monitoring tiles)",
             "items": [
                 {
@@ -971,6 +979,7 @@
         },
         {
             "type": "ExpansionPanel",
+            "name": "ExtraCommandsPanel",
             "caption": "🆕 Extra commands (optional, requires large HeishaMon board / heat pump \"Optional PCB\" setting)",
             "items": [
                 {
