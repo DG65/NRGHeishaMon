@@ -1,13 +1,15 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-1.21.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-1.40.1-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
 [![PayPal](https://img.shields.io/badge/PayPal-Me-blue?logo=paypal)](https://paypal.me/DietmarGureth)
 
-IP-Symcon Modul zur Anbindung eines [HeishaMon](https://github.com/heishamon/HeishaMon) an eine Panasonic Aquarea Wärmepumpe über MQTT.
+[English version](README.en.md)
+
+Symcon Modul zur Anbindung eines [HeishaMon](https://github.com/heishamon/HeishaMon) an eine Panasonic Aquarea Wärmepumpe über MQTT.
 
 Teil des **NRG-Stack** — dem Energie-Modulverbund von DG65.
 
@@ -17,24 +19,24 @@ Die Nutzung dieses Moduls erfolgt **auf eigenes Risiko**. Das Modul sendet Befeh
 
 ## Funktionsumfang
 
-- Empfängt alle HeishaMon-Datenpunkte (`main/TOP0` … `main/TOP143` sowie die Optional-PCB-Topics) über den IP-Symcon MQTT Server oder MQTT Client.
+- Empfängt alle HeishaMon-Datenpunkte (`main/TOP0` … `main/TOP143` sowie die Optional-PCB-Topics) über den Symcon MQTT Server oder MQTT Client.
 - Legt Statusvariablen **automatisch** an, sobald der HeishaMon das jeweilige Topic sendet — es erscheinen also nur die Datenpunkte, die die eigene Wärmepumpe tatsächlich liefert.
 - Passende Darstellungen: Temperaturen mit °C, Leistungen mit W, Betriebsarten als Auswahlliste, Zustände als Schalter.
 - Schreibbare Werte (z. B. Warmwasser-Solltemperatur, Betriebsart, Flüstermodus, Powerful-Modus) sind direkt schaltbar und werden über `<Basistopic>/commands/SetXxx` an den HeishaMon gesendet.
 - Verfügbarkeitsanzeige über das LWT-Topic (Variable „Erreichbar").
-- Vollständige deutsche Übersetzung über `locale.json`.
+- Zweisprachig Deutsch/Englisch (`locale.json`); englische Anleitung in [README.en.md](README.en.md).
 
 ## Voraussetzungen
 
-- IP-Symcon ab Version 9.0
+- Symcon ab Version 9.0
 - HeishaMon mit aktivierter MQTT-Anbindung
-- Eingerichteter MQTT Server (oder MQTT Client) in IP-Symcon, mit dem der HeishaMon verbunden ist
+- Eingerichteter MQTT Server (oder MQTT Client) in Symcon, mit dem der HeishaMon verbunden ist
 
 ## Installation
 
 ### Über den Module Store (empfohlen)
 
-Das Modul ist im **IP-Symcon Module Store** verfügbar und lässt sich direkt aus IP-Symcon heraus installieren: Module Store öffnen, nach **HeishaMon** suchen und installieren. Aktualisierungen kommen dann automatisch über den Store.
+Das Modul ist im **Symcon Module Store** verfügbar und lässt sich direkt aus Symcon heraus installieren: Module Store öffnen, nach **HeishaMon** suchen und installieren. Aktualisierungen kommen dann automatisch über den Store.
 
 ### Über die Modulverwaltung (URL)
 
@@ -73,7 +75,7 @@ Aus dem `stats`-Topic der Firmware pflegt das Modul die Gruppe **Platinen-Diagno
 
 ## Verknüpfungsstruktur (gruppierte Ansicht)
 
-Statusvariablen müssen in IP-Symcon flach unter der Instanz liegen — im WebFront wird daraus schnell eine lange, unübersichtliche Liste. Für eine übersichtliche, gruppierte WebFront-Navigation kann das Modul optional eine **Verknüpfungsstruktur** pflegen: Im Bereich **Verknüpfungsstruktur** die Option **Verknüpfungsstruktur erzeugen** aktivieren und eine **Zielkategorie** wählen (am besten eine, die selbst im WebFront sichtbar ist). Das Modul legt dort einen Kategoriebaum an:
+Statusvariablen müssen in Symcon flach unter der Instanz liegen — im WebFront wird daraus schnell eine lange, unübersichtliche Liste. Für eine übersichtliche, gruppierte WebFront-Navigation kann das Modul optional eine **Verknüpfungsstruktur** pflegen: Im Bereich **Verknüpfungsstruktur** die Option **Verknüpfungsstruktur erzeugen** aktivieren und eine **Zielkategorie** wählen (am besten eine, die selbst im WebFront sichtbar ist). Das Modul legt dort einen Kategoriebaum an:
 
 ```
 <Zielkategorie>
@@ -151,11 +153,11 @@ Der Bereich **💡 Energiespar-Prüfung** in der Instanz-Konfiguration bewertet 
 
 ## Energiespar-Regelwerke (auf der Platine)
 
-Der Bereich **⚙️ Energiespar-Regelwerke** kann kuratierte Regelwerke direkt auf die HeishaMon-Platine spielen — sie laufen dort autonom weiter, auch wenn WLAN oder IP-Symcon ausfallen. Erste Vorlage ist der **Taktschutz** (nach dem dokumentierten [`Compressor-Short-Cycle-Guard`](https://github.com/heishamon/HeishaMon/tree/main/Examples/Rules/Compressor-Short-Cycle-Guard)): Nach jedem Verdichterstopp wird der Wiederanlauf für eine einstellbare Zeit (Standard 45 min) unterdrückt, sofern es draußen mild ist (Standard ≥ 2 °C) — weniger Starts bedeuten bessere Effizienz und längere Verdichter-Lebensdauer; bei Kälte endet die Sperre sofort.
+Der Bereich **⚙️ Energiespar-Regelwerke** kann kuratierte Regelwerke direkt auf die HeishaMon-Platine spielen — sie laufen dort autonom weiter, auch wenn WLAN oder Symcon ausfallen. Erste Vorlage ist der **Taktschutz** (nach dem dokumentierten [`Compressor-Short-Cycle-Guard`](https://github.com/heishamon/HeishaMon/tree/main/Examples/Rules/Compressor-Short-Cycle-Guard)): Nach jedem Verdichterstopp wird der Wiederanlauf für eine einstellbare Zeit (Standard 45 min) unterdrückt, sofern es draußen mild ist (Standard ≥ 2 °C) — weniger Starts bedeuten bessere Effizienz und längere Verdichter-Lebensdauer; bei Kälte endet die Sperre sofort.
 
 **Wichtig:** Das Aufspielen **ersetzt das komplette** auf der Platine gespeicherte Regelwerk. Wer dort eigene Regeln pflegt (z. B. das umfangreiche [Referenz-Regelwerk](https://github.com/heishamon/HeishaMon/tree/main/Examples/Rules/Jeisha-DHW-Radiators-Rowbuffer)), sollte diese Funktion nicht nutzen. Die HeishaMon-Firmware validiert jeden Upload selbst — ein ungültiges Regelwerk wird verworfen, das bisherige bleibt aktiv.
 
-Abgrenzung im NRG-Stack (mit EMS abgestimmt): Platinen-Regelwerke bilden die autonome **Schutz-Schicht** (Taktschutz, Rampen); die energetische **Planung** (wann Warmwasser, SmartGrid-Modus, Pausen) bleibt bei EMS/IP-Symcon — die Vorlagen enthalten deshalb bewusst keine Zeitplan-Blöcke.
+Abgrenzung im NRG-Stack (mit EMS abgestimmt): Platinen-Regelwerke bilden die autonome **Schutz-Schicht** (Taktschutz, Rampen); die energetische **Planung** (wann Warmwasser, SmartGrid-Modus, Pausen) bleibt bei EMS/Symcon — die Vorlagen enthalten deshalb bewusst keine Zeitplan-Blöcke.
 
 ## Elektrische Leistung & Integration in andere Module
 

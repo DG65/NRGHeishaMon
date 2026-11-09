@@ -44,7 +44,7 @@
                 },
                 {
                     "type": "Label",
-                    "caption": "⚙️ Energy saving rulesets: Deploys a parameterized short-cycle guard to the HeishaMon board itself, where it keeps running even if WiFi or IP-Symcon fail. Covers heating by default; \"Also protect cooling mode\" adds an independent, identical guard on the cool request, since the heat request has no effect while cooling. Deploying replaces the entire ruleset stored on the board; the firmware validates every upload and keeps the previous ruleset on errors."
+                    "caption": "⚙️ Energy saving rulesets: Deploys a parameterized short-cycle guard to the HeishaMon board itself, where it keeps running even if WiFi or Symcon fail. Covers heating by default; \"Also protect cooling mode\" adds an independent, identical guard on the cool request, since the heat request has no effect while cooling. Deploying replaces the entire ruleset stored on the board; the firmware validates every upload and keeps the previous ruleset on errors."
                 },
                 {
                     "type": "Label",
@@ -832,7 +832,7 @@
             "items": [
                 {
                     "type": "Label",
-                    "caption": "Curated rulesets are uploaded to the HeishaMon board and keep running there autonomously - even if WiFi or IP-Symcon fail. The firmware validates every upload itself; an invalid ruleset is discarded and the previous one stays active."
+                    "caption": "Curated rulesets are uploaded to the HeishaMon board and keep running there autonomously - even if WiFi or Symcon fail. The firmware validates every upload itself; an invalid ruleset is discarded and the previous one stays active."
                 },
                 {
                     "type": "Label",

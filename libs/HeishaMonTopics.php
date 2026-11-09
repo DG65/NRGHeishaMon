@@ -80,7 +80,7 @@ class HeishaMonTopics
             'main/Discharge_Temp'                  => ['cap' => 'Discharge temperature', 'kind' => 'float', 'suffix' => ' °C', 'digits' => 1],
             'main/Inside_Pipe_Temp'                => ['cap' => 'Inside pipe temperature', 'kind' => 'float', 'suffix' => ' °C', 'digits' => 1],
             'main/Defrost_Temp'                    => ['cap' => 'Defrost temperature', 'kind' => 'float', 'suffix' => ' °C', 'digits' => 1],
-            'main/Eva_Outlet_Temp'                 => ['cap' => 'Eva outlet temperature', 'kind' => 'float', 'suffix' => ' °C', 'digits' => 1],
+            'main/Eva_Outlet_Temp'                 => ['cap' => 'Evaporator outlet temperature', 'kind' => 'float', 'suffix' => ' °C', 'digits' => 1],
             'main/Bypass_Outlet_Temp'              => ['cap' => 'Bypass outlet temperature', 'kind' => 'float', 'suffix' => ' °C', 'digits' => 1],
             'main/Ipm_Temp'                        => ['cap' => 'IPM temperature', 'kind' => 'float', 'suffix' => ' °C', 'digits' => 1],
             'main/Z1_Temp'                         => ['cap' => 'Zone 1 actual temperature', 'kind' => 'float', 'suffix' => ' °C', 'digits' => 1],

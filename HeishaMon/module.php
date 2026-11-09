@@ -9,7 +9,7 @@ require_once __DIR__ . '/../libs/Schedule.php';
 /**
  * HeishaMon
  *
- * Bindet einen HeishaMon (https://github.com/heishamon/HeishaMon) an IP-Symcon an.
+ * Bindet einen HeishaMon (https://github.com/heishamon/HeishaMon) an Symcon an.
  * Das Modul wird unter einem MQTT Server / MQTT Client (Splitter) angelegt und
  * erzeugt fuer jedes empfangene Topic automatisch eine passende Statusvariable.
  * Schreibbare Werte werden ueber <Basistopic>/commands/SetXxx an den HeishaMon gesendet.
@@ -38,7 +38,7 @@ class HeishaMon extends IPSModule
             'New: board diagnostics - WiFi quality, uptime, MQTT reconnects, bus read quality, active rules and firmware version from the HeishaMon stats topic, as variables in the new "Board diagnostics" group.',
             'New: S0 meters connected directly to the HeishaMon board (power + energy total in kWh) are now available as datapoints - usable as source for the measured COP.',
             'New: reboot watchdog - after a prolonged MQTT outage the module can restart the HeishaMon board via its /reboot endpoint. See "Reboot watchdog" panel.',
-            'New: energy saving rulesets - the module can deploy a parameterized short-cycle guard directly to the HeishaMon board, where it keeps running even without WiFi/IP-Symcon. See "Energy saving rulesets" panel.',
+            'New: energy saving rulesets - the module can deploy a parameterized short-cycle guard directly to the HeishaMon board, where it keeps running even without WiFi/Symcon. See "Energy saving rulesets" panel.',
             'New: energy saving check - the module assesses the received unit settings (DHW target, backup heater enables, heating curve, cycling) against reference values. See "Energy saving check" panel.',
             'New: monitoring datapoints (power, temperatures, COP, defrost, compressor starts) are now archived automatically for time-series tiles - see "Archiving" panel to opt out.',
             'New: optional extra commands (large board relays, SmartGrid mode as a digital SG ready replacement) - see "Extra commands" panel.'
@@ -98,6 +98,10 @@ class HeishaMon extends IPSModule
         ],
         '1.40.0' => [
             'New: you can now choose the layout of the configuration form: in the new panel "Form layout" you set for each area (1-Wire, link structure, energy meter, heating automation, time schedule and so on) whether it is expanded, collapsed or hidden when the form opens, and at which position it stands. Hidden areas keep their settings and keep working. Nothing changes until you choose something.'
+        ],
+        '1.40.1' => [
+            'Fix: the display of a variable (icon, decimals, unit, colors, labels) belongs to you: the module no longer resets it when you apply the configuration. An invalid display left behind by an older version is repaired once; everything else stays as you set it.',
+            'Change: Symcon translates the configuration form itself, so the module no longer translates its fixed form texts; "IP-Symcon" is now simply called "Symcon" in all texts, and the English README (README.en.md) is new. The evaporator outlet temperature now has a clearer English name.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -177,6 +181,8 @@ class HeishaMon extends IPSModule
         $this->RegisterPropertyBoolean('RebootWatchdog', false);
         $this->RegisterPropertyInteger('RebootWatchdogMinutes', 10);
         $this->RegisterAttributeInteger('OfflineSince', 0);
+        //Stand der Darstellungs-Reparatur bestehender Variablen (siehe presentationRepairDue())
+        $this->RegisterAttributeInteger('PresentationSchema', 0);
         $this->RegisterAttributeInteger('LastRebootAttempt', 0);
         $this->RegisterTimer('RebootWatchdog', 0, 'HEISHA_CheckRebootWatchdog($_IPS[\'TARGET\']);');
 
@@ -236,7 +242,8 @@ class HeishaMon extends IPSModule
     }
 
     /**
-     * Frischt die Reachable-Darstellung bestehender Installationen auf (nur bei Abweichung).
+     * Repariert die Reachable-Darstellung bestehender Installationen, falls sie ungueltig ist (einmalig, siehe
+     * presentationRepairDue()). Die Variable entsteht in Create(), dort greift die Korrektur fuer Bestandsanlagen nie.
      */
     private function maintainReachablePresentation()
     {
@@ -244,12 +251,7 @@ class HeishaMon extends IPSModule
         if ($variableID === false) {
             return;
         }
-        $presentation = $this->reachablePresentation();
-        $current = @IPS_GetVariablePresentation($variableID);
-        if (is_array($current) && $this->presentationMatches($current, $presentation)) {
-            return;
-        }
-        $this->MaintainVariable('Reachable', $this->Translate('Reachable'), VARIABLETYPE_BOOLEAN, $presentation, 0, true);
+        $this->repairPresentation($variableID, VARIABLETYPE_BOOLEAN, $this->reachablePresentation());
     }
 
     public function Destroy()
@@ -285,7 +287,7 @@ class HeishaMon extends IPSModule
         $this->patchFormElement($form['elements'], 'EnergyCheckPanel', function (&$element) {
             $items = [[
                 'type'    => 'Label',
-                'caption' => $this->Translate('Assessment of the received unit settings against reference values from the documented HeishaMon example rulesets and the Panasonic service manual. Display only - nothing is changed. These are service settings of the heat pump: adjust them deliberately, when in doubt with your installer.')
+                'caption' => 'Assessment of the received unit settings against reference values from the documented HeishaMon example rulesets and the Panasonic service manual. Display only - nothing is changed. These are service settings of the heat pump: adjust them deliberately, when in doubt with your installer.'
             ]];
             foreach ($this->buildEnergySavingFindings() as $finding) {
                 $items[] = ['type' => 'Label', 'caption' => $finding[0] . ' ' . $finding[1]];
@@ -337,7 +339,7 @@ class HeishaMon extends IPSModule
         });
 
         $schedLine = $this->ReadPropertyBoolean('SchedEnabled')
-            ? '🗓️ ' . (string) ($this->GetIDForIdent('Sched_Status') !== false ? GetValue(@$this->GetIDForIdent('Sched_Status')) : '')
+            ? '🗓️ ' . (string) (@$this->GetIDForIdent('Sched_Status') !== false ? GetValue(@$this->GetIDForIdent('Sched_Status')) : '')
             : $this->Translate('ℹ️ The time schedule is not used. Enable it above.');
         $this->patchFormElement($form['elements'], 'SchedStatus', function (&$element) use ($schedLine) {
             $element['caption'] = $schedLine;
@@ -546,6 +548,14 @@ class HeishaMon extends IPSModule
      * Dokumentation, die Standardreihenfolge ergibt sich aus form.json. Fest stehen die Panels oben (Zweck,
      * Neu, Dokumentation) und unten (Forum, Ueber dieses Modul) sowie die Felder davor und die Datenpunkt-Liste.
      */
+    /**
+     * Version der Darstellungs-Reparatur: Wird sie angehoben, prueft das Modul beim naechsten Uebernehmen
+     * EINMAL, ob bestehende Variablen eine ungueltige Darstellung tragen (siehe presentationNeedsRepair()).
+     * Danach fasst es die Darstellung bestehender Variablen nie wieder an: sie liegt in der Hoheit des Nutzers
+     * (Store-Review Messwertrechner, SUITE.md Punkt 28).
+     */
+    private const PRESENTATION_SCHEMA = 2;
+
     private const FORM_PANELS = [
         'OneWirePanel'       => 'onewire',
         'LinkTreePanel'      => 'links',
@@ -676,9 +686,11 @@ class HeishaMon extends IPSModule
 
     private function buildLayoutPanel(array $layout, array $panels, array $hidden): array
     {
-        $caption = $this->Translate('🪟  Form layout');
+        //Die Konsole uebersetzt Formulartexte selbst (Store-Review WPModbusHub 0.8.0, SUITE.md Punkt 25); nur zusammengesetzte
+        //Texte mit eingesetzten Werten uebersetzt das Modul selbst
+        $caption = '🪟  Form layout';
         if (count($hidden) > 0) {
-            $caption .= ' (' . sprintf($this->Translate('%d hidden'), count($hidden)) . ')';
+            $caption = $this->Translate($caption) . ' (' . sprintf($this->Translate('%d hidden'), count($hidden)) . ')';
         }
         $items = [];
         if (count($hidden) > 0) {
@@ -689,33 +701,33 @@ class HeishaMon extends IPSModule
         }
         $items[] = [
             'type'    => 'Label',
-            'caption' => $this->Translate('Here you decide which areas are expanded when the form opens and in which order they appear. Symcon does not remember expanding and collapsing, so the setting applies every time the form opens. It takes effect after "Apply" the next time you open the form.')
+            'caption' => 'Here you decide which areas are expanded when the form opens and in which order they appear. Symcon does not remember expanding and collapsing, so the setting applies every time the form opens. It takes effect after "Apply" the next time you open the form.'
         ];
         $items[] = [
             'type'    => 'Label',
-            'caption' => $this->Translate('No tick means "default": as the module intends it. The position is a number; with equal numbers the default order stays. "Hidden" takes an area out of the display without losing anything: its settings are kept and keep working (meant for areas you rarely need). To show it again remove the tick at "Hidden" or click "Reset to default". With several ticks set, "Hidden" wins over "Collapsed", which wins over "Expanded". The areas above (purpose, news, documentation) and below (forum, about this module), the connection fields and the datapoint list stay where they are and cannot be hidden.')
+            'caption' => 'No tick means "default": as the module intends it. The position is a number; with equal numbers the default order stays. "Hidden" takes an area out of the display without losing anything: its settings are kept and keep working (meant for areas you rarely need). To show it again remove the tick at "Hidden" or click "Reset to default". With several ticks set, "Hidden" wins over "Collapsed", which wins over "Expanded". The areas above (purpose, news, documentation) and below (forum, about this module), the connection fields and the datapoint list stay where they are and cannot be hidden.'
         ];
         $items[] = [
             'type'                        => 'List',
             'name'                        => 'FormLayout',
-            'caption'                     => $this->Translate('Areas'),
+            'caption'                     => 'Areas',
             'rowCount'                    => count($layout),
             'add'                         => false,
             'delete'                      => false,
             'loadValuesFromConfiguration' => false,
             'values'                      => $this->formLayoutRows($layout, $panels),
             'columns'                     => [
-                ['caption' => $this->Translate('Area'), 'name' => 'Panel', 'width' => 'auto', 'add' => ''],
-                ['caption' => $this->Translate('Key'), 'name' => 'Key', 'width' => '0px', 'visible' => false, 'add' => '', 'save' => true],
-                ['caption' => $this->Translate('Expanded'), 'name' => 'Opened', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
-                ['caption' => $this->Translate('Collapsed'), 'name' => 'Closed', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
-                ['caption' => $this->Translate('🙈 Hidden'), 'name' => 'Hidden', 'width' => '130px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
-                ['caption' => $this->Translate('Position'), 'name' => 'Pos', 'width' => '100px', 'add' => 1, 'edit' => ['type' => 'NumberSpinner', 'minimum' => 1, 'maximum' => 99]]
+                ['caption' => 'Area', 'name' => 'Panel', 'width' => 'auto', 'add' => ''],
+                ['caption' => 'Key', 'name' => 'Key', 'width' => '0px', 'visible' => false, 'add' => '', 'save' => true],
+                ['caption' => 'Expanded', 'name' => 'Opened', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                ['caption' => 'Collapsed', 'name' => 'Closed', 'width' => '110px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                ['caption' => '🙈 Hidden', 'name' => 'Hidden', 'width' => '130px', 'add' => false, 'edit' => ['type' => 'CheckBox']],
+                ['caption' => 'Position', 'name' => 'Pos', 'width' => '100px', 'add' => 1, 'edit' => ['type' => 'NumberSpinner', 'minimum' => 1, 'maximum' => 99]]
             ]
         ];
         $items[] = [
             'type'    => 'Button',
-            'caption' => $this->Translate('↩️ Reset to default'),
+            'caption' => '↩️ Reset to default',
             'onClick' => 'echo HEISHA_ResetFormLayout($id);'
         ];
         return [
@@ -795,19 +807,19 @@ class HeishaMon extends IPSModule
             'type'     => 'ExpansionPanel',
             'name'     => 'PurposeIntroPanel',
             'expanded' => true,
-            'caption'  => $this->Translate('👋  What is this module for?'),
+            'caption'  => '👋  What is this module for?',
             'items'    => [
                 [
                     'type'    => 'Label',
-                    'caption' => $this->Translate('This module connects a Panasonic heat pump to IP-Symcon locally via MQTT through the HeishaMon board - all readings, operating states and control options become available as Symcon variables automatically, without any cloud dependency.')
+                    'caption' => 'This module connects a Panasonic heat pump to Symcon locally via MQTT through the HeishaMon board - all readings, operating states and control options become available as Symcon variables automatically, without any cloud dependency.'
                 ],
                 [
                     'type'    => 'Label',
-                    'caption' => $this->Translate('That lets you evaluate and automate the heat pump like any other Symcon device, and connect it to the rest of your home energy system through the NRG-Stack (e.g. energy management, system schematic). No HeishaMon board? WPHub offers a cloud alternative via the Panasonic Comfort Cloud.')
+                    'caption' => 'That lets you evaluate and automate the heat pump like any other Symcon device, and connect it to the rest of your home energy system through the NRG-Stack (e.g. energy management, system schematic). No HeishaMon board? WPHub offers a cloud alternative via the Panasonic Comfort Cloud.'
                 ],
                 [
                     'type'    => 'Button',
-                    'caption' => $this->Translate('Understood - do not show again'),
+                    'caption' => 'Understood - do not show again',
                     'onClick' => 'HEISHA_AckPurposeIntro($id);'
                 ]
             ]
@@ -844,12 +856,12 @@ class HeishaMon extends IPSModule
                 $items[] = ['type' => 'Label', 'caption' => $this->Translate('Version') . ' ' . $version . ':'];
             }
             foreach ($lines as $line) {
-                $items[] = ['type' => 'Label', 'caption' => $this->Translate($line)];
+                $items[] = ['type' => 'Label', 'caption' => $line];
             }
         }
         $items[] = [
             'type'    => 'Button',
-            'caption' => $this->Translate('Understood - do not show again'),
+            'caption' => 'Understood - do not show again',
             'onClick' => 'HEISHA_AckNews($id);'
         ];
         return [
@@ -888,11 +900,11 @@ class HeishaMon extends IPSModule
             'type'     => 'ExpansionPanel',
             'name'     => 'ForumHintPanel',
             'expanded' => true,
-            'caption'  => $this->Translate('💬  Feedback in the Symcon forum'),
+            'caption'  => '💬  Feedback in the Symcon forum',
             'items'    => [
-                ['type' => 'Label', 'caption' => $this->Translate('Feedback and suggestions are welcome in the module thread on the Symcon forum.')],
-                ['type' => 'Button', 'caption' => $this->Translate('Go to the forum thread'), 'onClick' => "echo '" . self::FORUM_URL . "';", 'link' => true],
-                ['type' => 'Button', 'caption' => $this->Translate('Understood - do not show again'), 'onClick' => 'HEISHA_DismissForumHint($id);']
+                ['type' => 'Label', 'caption' => 'Feedback and suggestions are welcome in the module thread on the Symcon forum.'],
+                ['type' => 'Button', 'caption' => 'Go to the forum thread', 'onClick' => "echo '" . self::FORUM_URL . "';", 'link' => true],
+                ['type' => 'Button', 'caption' => 'Understood - do not show again', 'onClick' => 'HEISHA_DismissForumHint($id);']
             ]
         ];
     }
@@ -916,14 +928,14 @@ class HeishaMon extends IPSModule
         return [
             'type'     => 'ExpansionPanel',
             'expanded' => false,
-            'caption'  => $this->Translate('🧡  About this module'),
+            'caption'  => '🧡  About this module',
             'items'    => [
-                ['type' => 'Label', 'caption' => $this->Translate('Born out of genuine enthusiasm for my own system - and quite a few late-night typing sessions. Still: software hobby or not, this is intellectual property and real work went into it.')],
-                ['type' => 'Label', 'caption' => $this->Translate('License: PolyForm Noncommercial 1.0.0 - free for private and non-commercial use, commercial use requires a separate license from the rights holder.')],
-                ['type' => 'Button', 'caption' => $this->Translate('View license text'), 'onClick' => "echo '" . self::LICENSE_URL . "';", 'link' => true],
-                ['type' => 'Label', 'caption' => $this->Translate('Commercial use or license questions? Just get in touch: dietmar@gureth.eu')],
-                ['type' => 'Label', 'caption' => $this->Translate('Do you like the module and still want to leave something behind? A small donation is very welcome - entirely optional, no strings attached.')],
-                ['type' => 'Button', 'caption' => $this->Translate('☕  Donate via PayPal'), 'onClick' => "echo '" . self::PAYPAL_URL . "';", 'link' => true]
+                ['type' => 'Label', 'caption' => 'Born out of genuine enthusiasm for my own system - and quite a few late-night typing sessions. Still: software hobby or not, this is intellectual property and real work went into it.'],
+                ['type' => 'Label', 'caption' => 'License: PolyForm Noncommercial 1.0.0 - free for private and non-commercial use, commercial use requires a separate license from the rights holder.'],
+                ['type' => 'Button', 'caption' => 'View license text', 'onClick' => "echo '" . self::LICENSE_URL . "';", 'link' => true],
+                ['type' => 'Label', 'caption' => 'Commercial use or license questions? Just get in touch: dietmar@gureth.eu'],
+                ['type' => 'Label', 'caption' => 'Do you like the module and still want to leave something behind? A small donation is very welcome - entirely optional, no strings attached.'],
+                ['type' => 'Button', 'caption' => '☕  Donate via PayPal', 'onClick' => "echo '" . self::PAYPAL_URL . "';", 'link' => true]
             ]
         ];
     }
@@ -937,13 +949,24 @@ class HeishaMon extends IPSModule
         $seenTopics = json_decode((string) $this->ReadAttributeString('SeenTopics'), true) ?: [];
         $topics = HeishaMonTopics::topics();
         $rows = [];
+        //Jeder Translate()-Aufruf liest die locale.json: Gruppen und "Yes" wiederholen sich in jeder Zeile und werden
+        //deshalb nur einmal je Formularaufbau uebersetzt (SUITE.md Stolperstein 24)
+        $memo = [];
+        $text = function (string $key) use (&$memo): string {
+            if (!isset($memo[$key])) {
+                $translated = $this->Translate($key);
+                //waehrend des Neuladefensters liefert Translate() false: dann den englischen Schluessel zeigen
+                $memo[$key] = is_string($translated) && $translated !== '' ? $translated : $key;
+            }
+            return $memo[$key];
+        };
         foreach ($orderedTopics as $topic) {
             $rows[] = [
                 'Selected' => $selection[$topic] ?? true,
-                'Caption'  => $this->Translate($topics[$topic]['cap']),
-                'Group'    => $this->Translate(HeishaMonTopics::groupForTopic($topic)),
+                'Caption'  => $text($topics[$topic]['cap']),
+                'Group'    => $text(HeishaMonTopics::groupForTopic($topic)),
                 'Topic'    => $topic,
-                'Received' => in_array($topic, $seenTopics) ? $this->Translate('Yes') : ''
+                'Received' => in_array($topic, $seenTopics) ? $text('Yes') : ''
             ];
         }
         return $rows;
@@ -1076,6 +1099,11 @@ class HeishaMon extends IPSModule
             $this->maintainLinkTree();
         } else {
             $this->RegisterMessage(0, IPS_KERNELSTARTED);
+        }
+
+        //Die einmalige Darstellungs-Reparatur ist durch: ab jetzt bleibt die Darstellung bestehender Variablen unangetastet
+        if ($this->presentationRepairDue()) {
+            $this->WriteAttributeInteger('PresentationSchema', self::PRESENTATION_SCHEMA);
         }
     }
 
@@ -1261,6 +1289,7 @@ class HeishaMon extends IPSModule
      * Wird von UpdateVariableNames genutzt, um nur unveraenderte Standardnamen umzubenennen.
      */
     private const RENAMED_CAPTIONS = [
+        'Eva outlet temperature'                      => 'Evaporator outlet temperature',
         'Rohrtemperatur außen'                        => 'Outside pipe temperature',
         'Rohrtemperatur innen'                        => 'Inside pipe temperature',
         'Pumpenleistung'                              => 'Pump duty',
@@ -2056,19 +2085,11 @@ class HeishaMon extends IPSModule
     }
 
     /**
-     * Legt eine Diagnose-Variable an bzw. aktualisiert die Darstellung nur bei Abweichung.
+     * Legt eine Diagnose-Variable mit Standarddarstellung an; eine bestehende bleibt unangetastet.
      */
     private function maintainStatsVariable(string $ident, string $caption, int $type, array $presentation, int $position)
     {
-        $variableID = @$this->GetIDForIdent($ident);
-        if ($variableID !== false) {
-            $current = @IPS_GetVariablePresentation($variableID);
-            if (is_array($current) && $this->presentationMatches($current, $presentation)) {
-                return;
-            }
-        }
-        $this->MaintainVariable($ident, $caption, $type, $presentation, $position, true);
-        if ($variableID === false) {
+        if ($this->maintainDefaultPresentation($ident, $caption, $type, $presentation, $position)) {
             //neue Diagnose-Variable sofort in die Linkstruktur aufnehmen
             $this->maintainLinkTree();
         }
@@ -2178,7 +2199,7 @@ class HeishaMon extends IPSModule
     }
 
     /**
-     * Legt die Variable eines 1-Wire-Sensors an bzw. aktualisiert Name/Darstellung.
+     * Legt die Variable eines 1-Wire-Sensors an bzw. fuehrt den Namen nach (die Darstellung gehoert dem Nutzer).
      */
     private function maintainOneWireVariable(string $address, bool $refreshOnly = false)
     {
@@ -2194,10 +2215,7 @@ class HeishaMon extends IPSModule
             'DIGITS'       => 1
         ];
         if ($refreshOnly) {
-            $current = @IPS_GetVariablePresentation($variableID);
-            if (!is_array($current) || !$this->presentationMatches($current, $presentation)) {
-                $this->MaintainVariable($ident, $this->oneWireCaption($address), VARIABLETYPE_FLOAT, $presentation, $this->getOneWirePositionMap()[$address] ?? 2000, true);
-            }
+            $this->repairPresentation($variableID, VARIABLETYPE_FLOAT, $presentation);
             //Vom Nutzer gepflegten Namen nachfuehren, unabhaengig von der Darstellung
             if (IPS_GetName($variableID) !== $this->oneWireCaption($address)) {
                 IPS_SetName($variableID, $this->oneWireCaption($address));
@@ -2816,16 +2834,16 @@ class HeishaMon extends IPSModule
             return;
         }
 
-        $this->MaintainVariable('HeatAuto_Active', $this->Translate('Heating automation'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 270, true);
+        $this->maintainDefaultPresentation('HeatAuto_Active', $this->Translate('Heating automation'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 270);
         $this->EnableAction('HeatAuto_Active');
         $options = [];
         foreach ([0 => 'Heating off (hot water only)', 1 => 'Heating', 2 => 'Cooling', 3 => 'Heating blocked (high price)'] as $value => $caption) {
             $options[] = ['Value' => $value, 'Caption' => $this->Translate($caption), 'IconActive' => false, 'IconValue' => '', 'Color' => -1];
         }
-        $this->MaintainVariable('HeatAuto_State', $this->Translate('Heating automation: state'), VARIABLETYPE_INTEGER, $this->displayOnlyOptionsPresentation($options), 271, true);
-        $this->MaintainVariable('HeatAuto_Reason', $this->Translate('Heating automation: reason'), VARIABLETYPE_STRING, [
+        $this->maintainDefaultPresentation('HeatAuto_State', $this->Translate('Heating automation: state'), VARIABLETYPE_INTEGER, $this->displayOnlyOptionsPresentation($options), 271);
+        $this->maintainDefaultPresentation('HeatAuto_Reason', $this->Translate('Heating automation: reason'), VARIABLETYPE_STRING, [
             'PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION
-        ], 272, true);
+        ], 272);
         $this->SetTimerInterval('HeatAutoTick', self::HEATAUTO_TICK_MS);
         //Quellen nach jeder Aenderung der Einstellungen neu suchen
         $this->WriteAttributeString('HeatAutoHumidityCache', '{}');
@@ -3234,9 +3252,9 @@ class HeishaMon extends IPSModule
             $this->MaintainVariable('Sched_Status', $this->Translate('Time schedule: status'), VARIABLETYPE_STRING, [], 276, false);
             return;
         }
-        $this->MaintainVariable('Sched_Active', $this->Translate('Time schedule'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 275, true);
+        $this->maintainDefaultPresentation('Sched_Active', $this->Translate('Time schedule'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 275);
         $this->EnableAction('Sched_Active');
-        $this->MaintainVariable('Sched_Status', $this->Translate('Time schedule: status'), VARIABLETYPE_STRING, ['PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION], 276, true);
+        $this->maintainDefaultPresentation('Sched_Status', $this->Translate('Time schedule: status'), VARIABLETYPE_STRING, ['PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION], 276);
         $this->SetTimerInterval('SchedTick', self::SCHED_TICK_MS);
     }
 
@@ -4722,12 +4740,12 @@ class HeishaMon extends IPSModule
 
         $presentation = $this->buildPresentation($definition);
 
-        //Nur schreiben, wenn sich die Darstellung wirklich unterscheidet
+        //Bestehende Variablen: Darstellung gehoert dem Nutzer, nur ungueltige Staende werden einmalig repariert
         if ($refreshOnly) {
-            $current = @IPS_GetVariablePresentation($variableID);
-            if (is_array($current) && $this->presentationMatches($current, $presentation)) {
-                return;
+            if ($this->repairPresentation($variableID, $this->variableTypeOfKind($definition['kind']), $presentation) && array_key_exists('set', $definition)) {
+                $this->EnableAction($ident);
             }
+            return;
         }
 
         $caption = $this->Translate($definition['cap']);
@@ -4764,13 +4782,11 @@ class HeishaMon extends IPSModule
         if (!$keep && $variableID === false) {
             return;
         }
-        if ($keep && $variableID !== false) {
-            $current = @IPS_GetVariablePresentation($variableID);
-            if (is_array($current) && $this->presentationMatches($current, $presentation)) {
-                return;
-            }
+        if ($keep) {
+            $this->maintainDefaultPresentation($ident, $caption, VARIABLETYPE_FLOAT, $presentation, $position);
+            return;
         }
-        $this->MaintainVariable($ident, $caption, VARIABLETYPE_FLOAT, $presentation, $position, $keep);
+        $this->MaintainVariable($ident, $caption, VARIABLETYPE_FLOAT, $presentation, $position, false);
     }
 
     /**
@@ -4809,14 +4825,7 @@ class HeishaMon extends IPSModule
         }
         //Nur Anzeige, keine Variablenaktion: ENUMERATION waere dafuer nicht zulaessig (siehe displayOnlyOptionsPresentation)
         $presentation = $this->displayOnlyOptionsPresentation($options);
-        $variableID = @$this->GetIDForIdent('Operating_Mode_Norm');
-        if ($variableID !== false) {
-            $current = @IPS_GetVariablePresentation($variableID);
-            if (is_array($current) && $this->presentationMatches($current, $presentation)) {
-                return;
-            }
-        }
-        $this->MaintainVariable('Operating_Mode_Norm', $this->Translate('Operating mode (standardized)'), VARIABLETYPE_INTEGER, $presentation, 1, true);
+        $this->maintainDefaultPresentation('Operating_Mode_Norm', $this->Translate('Operating mode (standardized)'), VARIABLETYPE_INTEGER, $presentation, 1);
     }
 
     /**
@@ -4865,19 +4874,14 @@ class HeishaMon extends IPSModule
             ];
         }
         $presentation = ['PRESENTATION' => VARIABLE_PRESENTATION_ENUMERATION, 'OPTIONS' => json_encode($options)];
-        if ($enabled && $variableID !== false) {
-            $current = @IPS_GetVariablePresentation($variableID);
-            if (is_array($current) && $this->presentationMatches($current, $presentation)) {
-                return;
+        if (!$enabled) {
+            if ($variableID !== false) {
+                $this->MaintainVariable($ident, $this->Translate('SmartGrid mode'), VARIABLETYPE_INTEGER, $presentation, 259, false);
             }
-        }
-        if (!$enabled && $variableID === false) {
             return;
         }
-        $this->MaintainVariable($ident, $this->Translate('SmartGrid mode'), VARIABLETYPE_INTEGER, $presentation, 259, $enabled);
-        if ($enabled) {
-            $this->EnableAction($ident);
-        }
+        $this->maintainDefaultPresentation($ident, $this->Translate('SmartGrid mode'), VARIABLETYPE_INTEGER, $presentation, 259);
+        $this->EnableAction($ident);
     }
 
     /**
@@ -4895,48 +4899,146 @@ class HeishaMon extends IPSModule
         $presentation = [
             'PRESENTATION' => VARIABLE_PRESENTATION_SWITCH
         ];
-        if ($enabled && $variableID !== false) {
-            $current = @IPS_GetVariablePresentation($variableID);
-            if (is_array($current) && $this->presentationMatches($current, $presentation)) {
-                return;
+        if (!$enabled) {
+            if ($variableID !== false) {
+                $this->MaintainVariable($ident, $caption, VARIABLETYPE_BOOLEAN, $presentation, $position, false);
             }
-        }
-        if (!$enabled && $variableID === false) {
             return;
         }
-        $this->MaintainVariable($ident, $caption, VARIABLETYPE_BOOLEAN, $presentation, $position, $enabled);
-        if ($enabled) {
-            $this->EnableAction($ident);
-        }
+        $this->maintainDefaultPresentation($ident, $caption, VARIABLETYPE_BOOLEAN, $presentation, $position);
+        $this->EnableAction($ident);
     }
 
     /**
-     * Vergleicht die Soll-Darstellung mit der vorhandenen. Der Kernel ergaenzt beim Speichern
-     * Default-Parameter, daher werden nur die von uns gesetzten Schluessel verglichen.
+     * Darstellung (Standard): Eine neue Variable bekommt die Standarddarstellung des Moduls. Eine bestehende
+     * Variable wird NICHT angefasst - Name, Position und Darstellung liegen in der Hoheit des Nutzers und
+     * wuerden sonst bei jedem Uebernehmen zurueckgesetzt (Store-Review Messwertrechner, SUITE.md Punkt 28).
+     * Die einzige Ausnahme ist die einmalige Reparatur ungueltiger Staende, siehe repairPresentation().
+     *
+     * @return bool true, wenn die Variable neu angelegt wurde
      */
-    private function presentationMatches(array $current, array $target): bool
+    private function maintainDefaultPresentation(string $ident, string $caption, int $type, array $presentation, int $position): bool
     {
-        foreach ($target as $key => $value) {
-            if (!array_key_exists($key, $current)) {
-                return false;
-            }
-            $currentValue = $current[$key];
-            //OPTIONS u.ae. sind JSON-Strings, die der Kernel umformatieren kann
-            if (is_string($currentValue) && is_string($value)) {
-                $decodedCurrent = json_decode($currentValue, true);
-                $decodedTarget = json_decode($value, true);
-                if ($decodedCurrent !== null && $decodedTarget !== null) {
-                    if ($decodedCurrent != $decodedTarget) {
-                        return false;
-                    }
-                    continue;
+        $variableID = @$this->GetIDForIdent($ident);
+        if ($variableID === false) {
+            $this->MaintainVariable($ident, $caption, $type, $presentation, $position, true);
+            return true;
+        }
+        $this->repairPresentation($variableID, $type, $presentation);
+        return false;
+    }
+
+    /**
+     * Ob die einmalige Reparatur ungueltiger Darstellungen noch aussteht (nach einem Update des Moduls).
+     * Neue Reparaturregeln brauchen eine hoehere PRESENTATION_SCHEMA und eine Regel in presentationNeedsRepair().
+     */
+    private function presentationRepairDue(): bool
+    {
+        return (int) $this->ReadAttributeInteger('PresentationSchema') < self::PRESENTATION_SCHEMA;
+    }
+
+    /**
+     * Schreibt die Standarddarstellung auf eine BESTEHENDE Variable, aber nur, solange die einmalige Reparatur
+     * aussteht und die vorhandene Darstellung ungueltig ist. Name und Position der Variable bleiben, wie der Nutzer
+     * sie hat.
+     */
+    private function repairPresentation(int $variableID, int $type, array $presentation): bool
+    {
+        if (!$this->presentationRepairDue()) {
+            return false;
+        }
+        $current = @IPS_GetVariablePresentation($variableID);
+        if (!$this->presentationNeedsRepair($current, $presentation, $type)) {
+            return false;
+        }
+        $object = IPS_GetObject($variableID);
+        $ident = (string) ($object['ObjectIdent'] ?? '');
+        if ($ident === '') {
+            return false;
+        }
+        $this->MaintainVariable($ident, IPS_GetName($variableID), $type, $presentation, (int) ($object['ObjectPosition'] ?? 0), true);
+        return true;
+    }
+
+    /**
+     * Ungueltige Staende, die frueher Versionen dieses Moduls hinterlassen haben koennen. Alles andere (Symbol,
+     * Farben, Nachkommastellen, Einheit, eigene Beschriftungen) ist Sache des Nutzers und bleibt.
+     *  - keine Darstellung vorhanden
+     *  - Wertanzeige auf einer Variable mit Aktion (die Konsole bricht ab)
+     *  - Aufzaehlung auf einer Variable ohne Aktion (nicht speicherbar, Archiv nicht einschaltbar)
+     *  - OPTIONS-Schluessel, die zur Darstellung nicht gehoeren (Color in der Wertanzeige, ColorActive/ColorValue
+     *    in der Aufzaehlung, Icon)
+     *  - Wertanzeige mit OPTIONS bei Integer/Float, wo Intervalle gemeint sind (wirkungslos)
+     *  - Schieberegler, dessen Grenzen nicht zum Variablentyp passen
+     *
+     * @param mixed $current Rueckgabe von IPS_GetVariablePresentation()
+     */
+    private function presentationNeedsRepair($current, array $target, int $type): bool
+    {
+        $targetPresentation = strtoupper((string) ($target['PRESENTATION'] ?? ''));
+        if (!is_array($current) || trim((string) ($current['PRESENTATION'] ?? '')) === '') {
+            return $targetPresentation !== '';
+        }
+        $have = strtoupper((string) $current['PRESENTATION']);
+        $valuePresentation = strtoupper(VARIABLE_PRESENTATION_VALUE_PRESENTATION);
+        $enumeration = strtoupper(VARIABLE_PRESENTATION_ENUMERATION);
+        $slider = strtoupper(VARIABLE_PRESENTATION_SLIDER);
+        $targetNeedsAction = in_array($targetPresentation, [
+            strtoupper(VARIABLE_PRESENTATION_SWITCH),
+            strtoupper(VARIABLE_PRESENTATION_SLIDER),
+            strtoupper(VARIABLE_PRESENTATION_ENUMERATION),
+            strtoupper(VARIABLE_PRESENTATION_VALUE_INPUT)
+        ], true);
+
+        if ($have === $valuePresentation && $targetNeedsAction) {
+            return true;
+        }
+        if ($have === $enumeration && !$targetNeedsAction) {
+            return true;
+        }
+
+        $options = $current['OPTIONS'] ?? null;
+        $options = is_string($options) ? json_decode($options, true) : $options;
+        if (is_array($options) && count($options) > 0) {
+            $allowed = $have === $enumeration
+                ? ['Value', 'Caption', 'IconActive', 'IconValue', 'Color']
+                : ['Value', 'Caption', 'IconActive', 'IconValue', 'ColorActive', 'ColorValue'];
+            foreach ($options as $option) {
+                if (is_array($option) && count(array_diff(array_keys($option), $allowed)) > 0) {
+                    return true;
                 }
             }
-            if ($currentValue != $value) {
-                return false;
+            if ($have === $valuePresentation && isset($target['INTERVALS']) && empty($current['INTERVALS_ACTIVE'])) {
+                return true;
             }
         }
-        return true;
+
+        if ($have === $slider && $targetPresentation === $slider) {
+            foreach (['MIN', 'MAX', 'STEP_SIZE'] as $key) {
+                if (!isset($current[$key])) {
+                    return true;
+                }
+                if ($type === VARIABLETYPE_FLOAT ? !is_float($current[$key]) : !is_int($current[$key])) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function variableTypeOfKind(string $kind): int
+    {
+        switch ($kind) {
+            case 'bool':
+                return VARIABLETYPE_BOOLEAN;
+            case 'int':
+            case 'enum':
+                return VARIABLETYPE_INTEGER;
+            case 'float':
+                return VARIABLETYPE_FLOAT;
+            default:
+                return VARIABLETYPE_STRING;
+        }
     }
 
     /**
