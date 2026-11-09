@@ -1046,7 +1046,7 @@
                                 "items": [
                                     {
                                         "type": "Label",
-                                        "caption": "The EMS asks through the variable \"Hot water boost (EMS)\". The module only starts the run if the operating mode includes hot water, no defrosting or legionella protection is running, the backup heater is not forced, the hot water is at least the set difference below its target temperature, and the minimum interval and the daily limit allow it. Otherwise nothing is sent and the reason appears in the status line and in the log. The unit never acknowledges commands, so the module checks the state after about 45 seconds and repeats the command up to three times. The variable shows the real state of the unit. A run you started by hand is never cancelled by the EMS. The module cancels a run it started itself after the safety cut-off time. The documentation of the HeishaMon does not say whether the unit stores this command permanently; the limits keep the number of commands small."
+                                        "caption": "The EMS asks through the variable \"Hot water boost (EMS)\". The module only starts the run if the operating mode includes hot water, no defrosting or legionella protection is running, the backup heater is not forced, the hot water is at least the set difference below its target temperature, and the minimum interval and the daily limit allow it. Otherwise nothing is sent for now: the request stays stored for the time set below and the module starts the run itself as soon as the conditions are met; the reason appears in the status line and in the log. The EMS sends its request only once, so cancelling it (switching the variable off) or taking back the enable clears the stored request. A start uses up the request. The unit never acknowledges commands, so the module checks the state after about 45 seconds and repeats the command up to three times. The variable shows the real state of the unit. A run you started by hand is never cancelled by the EMS. The module cancels a run it started itself after the safety cut-off time. The documentation of the HeishaMon does not say whether the unit stores this command permanently; the limits keep the number of commands small."
                                     }
                                 ]
                             }
@@ -1083,6 +1083,14 @@
                     "suffix": " min",
                     "minimum": 30,
                     "maximum": 480
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "EmsRunWishMinutes",
+                    "caption": "Keep a request of the EMS for",
+                    "suffix": " min",
+                    "minimum": 15,
+                    "maximum": 720
                 },
                 {
                     "type": "Label",

@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-1.41.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-1.41.1-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -152,7 +152,7 @@ Ein Wochenplan, der nach Wochentag und Uhrzeit die **Verschiebung der Heiz- und 
 Das EMS kann bei PV-Überschuss einen **Warmwasser-Lauf** anfordern: Die Wärmepumpe lädt dann sofort den Warmwasserspeicher, wie mit der Warmwasser-Taste an der Anlage (Bedienbefehl `SetForceDHW`). Sollwerte, Heizkurven und Verschiebung werden dafür **nie** geändert; ob die Anlage solche Einstellwerte im EEPROM ablegt, ist nicht dokumentiert, deshalb nutzt das Modul nur diesen Bedienbefehl.
 
 - **Ab Werk aus.** Im Bereich „EMS-Warmwasser-Zusatzlauf“ freigeben; erst dann gibt es die schaltbare Variable `Warmwasser-Zusatzlauf (EMS)` (`Optional_Run`) und meldet `HEISHA_GetFunctions()` `optionalRunID` und `controllable`.
-- **Start nur unter Bedingungen:** Betriebsart mit Warmwasser, keine Abtauung, kein Legionellenschutz, kein erzwungener Heizstab, Warmwasser mindestens 3 K unter dem Sollwert, mindestens 60 Minuten seit dem letzten Start, höchstens 4 Starts in 24 Stunden (Abstand, Zahl und Differenz einstellbar). Sonst wird nichts gesendet; der Grund steht in der Statuszeile und im Protokoll.
+- **Start nur unter Bedingungen (ein abgelehnter Wunsch bleibt zwei Stunden gespeichert, einstellbar, und startet selbst, sobald die Bedingungen erfüllt sind; ein Start verbraucht ihn):** Betriebsart mit Warmwasser, keine Abtauung, kein Legionellenschutz, kein erzwungener Heizstab, Warmwasser mindestens 3 K unter dem Sollwert, mindestens 60 Minuten seit dem letzten Start, höchstens 4 Starts in 24 Stunden (Abstand, Zahl und Differenz einstellbar). Sonst wird nichts gesendet; der Grund steht in der Statuszeile und im Protokoll.
 - **Kontrolle:** Die Anlage quittiert Befehle nie; nach ca. 45 s wird der Zustand über `Force_DHW_State` geprüft, der Befehl höchstens dreimal wiederholt.
 - **Abbruch:** `false` bricht nur einen vom Modul gestarteten Lauf ab, ein von Hand gestarteter bleibt unberührt. Ein selbst gestarteter Lauf wird nach 2 Stunden (einstellbar) beendet.
 - **Lesewert:** `Optional_Run` zeigt den tatsächlichen Zustand der Anlage, nicht den Wunsch. Das EMS merkt sich seinen Wunsch selbst.
