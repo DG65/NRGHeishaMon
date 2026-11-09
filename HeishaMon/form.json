@@ -1019,6 +1019,77 @@
                     "caption": "The two relays on the large HeishaMon board switch up to 230V/5A - typically used for an external thermostat contact, a pump, or similar low-power devices."
                 }
             ]
+        },
+        {
+            "type": "ExpansionPanel",
+            "name": "EmsPanel",
+            "caption": "🔥 EMS hot water boost (optional)",
+            "items": [
+                {
+                    "type": "Label",
+                    "caption": "Lets the EMS start a hot water run when there is surplus power: the heat pump then heats the hot water tank at once, like the hot water key on the unit. Nothing else is changed on the unit, no setpoints and no curves. Off by default; the module only offers the function to the EMS once you enable it here."
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "CheckBox",
+                            "name": "EmsRunEnabled",
+                            "caption": "Allow the EMS to request a hot water boost"
+                        },
+                        {
+                            "type": "PopupButton",
+                            "caption": "When does the hot water boost start and stop?",
+                            "width": "430px",
+                            "popup": {
+                                "caption": "When does the hot water boost start and stop?",
+                                "items": [
+                                    {
+                                        "type": "Label",
+                                        "caption": "The EMS asks through the variable \"Hot water boost (EMS)\". The module only starts the run if the operating mode includes hot water, no defrosting or legionella protection is running, the backup heater is not forced, the hot water is at least the set difference below its target temperature, and the minimum interval and the daily limit allow it. Otherwise nothing is sent and the reason appears in the status line and in the log. The unit never acknowledges commands, so the module checks the state after about 45 seconds and repeats the command up to three times. The variable shows the real state of the unit. A run you started by hand is never cancelled by the EMS. The module cancels a run it started itself after the safety cut-off time. The documentation of the HeishaMon does not say whether the unit stores this command permanently; the limits keep the number of commands small."
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "EmsRunMinDeltaK",
+                    "caption": "Hot water must be at least this far below its target",
+                    "suffix": " K",
+                    "minimum": 1,
+                    "maximum": 20
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "EmsRunMinGapMinutes",
+                    "caption": "Minimum interval between two boosts",
+                    "suffix": " min",
+                    "minimum": 15,
+                    "maximum": 1440
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "EmsRunMaxPerDay",
+                    "caption": "Maximum boosts per 24 hours",
+                    "minimum": 1,
+                    "maximum": 12
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "EmsRunMaxMinutes",
+                    "caption": "Cancel a run started by the EMS after",
+                    "suffix": " min",
+                    "minimum": 30,
+                    "maximum": 480
+                },
+                {
+                    "type": "Label",
+                    "name": "EmsRunStatus",
+                    "caption": "EMSRUNSTATUS"
+                }
+            ]
         }
     ],
     "actions": [

@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Module version](https://img.shields.io/badge/Module_Version-1.40.1-blue)
+![Module version](https://img.shields.io/badge/Module_Version-1.41.0-blue)
 ![Symcon version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -146,6 +146,17 @@ A weekly plan that sets the **shift of the heating and cooling request** (ECO âˆ
 - **Changed by hand** (for example in the dashboard): stays until the next switching time. The status shows since when (`stateSince`), and the log gets a line when a channel changes to "changed by hand" or "fault". With `HEISHA_SetSchedule(â€¦, '{"applyNow": true}')` you enforce the plan again immediately.
 - **Limitations:** the shift only applies while the unit reports a shift (not in direct mode), and the optional short-cycle guard ruleset on the board can overwrite it. Do not use the unit's own quiet mode timer (on the remote control) for the same purpose in parallel.
 - For scripts and other modules: `HEISHA_GetSchedule()` / `HEISHA_SetSchedule()` (partial update per channel, validation in the module, optimistic locking through `revision`).
+
+## Hot water boost for the EMS (optional)
+
+The EMS can request a **hot water run** when there is surplus PV power: the heat pump then heats the hot water tank at once, like the hot water key on the unit (operating command `SetForceDHW`). Setpoints, heating curves and the shift are **never** changed for this; whether the unit stores such settings in its EEPROM is not documented, so the module only uses this operating command.
+
+- **Off by default.** Enable it in the "EMS hot water boost" area; only then does the switchable variable `Hot water boost (EMS)` (`Optional_Run`) exist and `HEISHA_GetFunctions()` report `optionalRunID` and `controllable`.
+- **Starts only under conditions:** operating mode with hot water, no defrosting, no legionella protection, no forced backup heater, hot water at least 3 K below its target, at least 60 minutes since the last start, at most 4 starts in 24 hours (interval, number and difference are adjustable). Otherwise nothing is sent; the reason appears in the status line and in the log.
+- **Check:** the unit never acknowledges commands; after about 45 s the state is checked through `Force_DHW_State`, and the command is repeated at most three times.
+- **Cancel:** `false` only cancels a run started by the module; a run started by hand is left alone. A run the module started itself ends after 2 hours (adjustable).
+- **Read value:** `Optional_Run` shows the real state of the unit, not the request. The EMS remembers its own request.
+- The module does not deliver power fields (`optionalRunPowerID`, `optionalRunPowerMaxID`) or a power limit (`powerLimitID`, `powerLimitActiveID`); they are 0. `contractVersion` '1.18'.
 
 ## Energy saving check
 

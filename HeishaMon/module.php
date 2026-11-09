@@ -102,6 +102,9 @@ class HeishaMon extends IPSModule
         '1.40.1' => [
             'Fix: the display of a variable (icon, decimals, unit, colors, labels) belongs to you: the module no longer resets it when you apply the configuration. An invalid display left behind by an older version is repaired once; everything else stays as you set it.',
             'Change: Symcon translates the configuration form itself, so the module no longer translates its fixed form texts; "IP-Symcon" is now simply called "Symcon" in all texts, and the English README (README.en.md) is new. The evaporator outlet temperature now has a clearer English name.'
+        ],
+        '1.41.0' => [
+            'New: the EMS can now ask the heat pump for a hot water boost when there is surplus power (optional, off by default; panel "EMS hot water boost"). The module starts the run with the hot water command of the unit only if the operating mode includes hot water, no defrosting or legionella protection is running, the hot water is still clearly below its target and the minimum interval and daily limit allow it; it never changes setpoints or curves. The new variable "Hot water boost (EMS)" shows the real state of the unit.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -206,6 +209,7 @@ class HeishaMon extends IPSModule
         //Heizungs-Automatik (nur Heizbetrieb ein/aus, optional Kuehlen mit Taupunkt-Schutz)
         $this->registerHeatingAutomation();
         $this->registerSchedule();
+        $this->registerEmsRun();
 
         $this->RegisterVariableBoolean('Reachable', $this->Translate('Reachable'), $this->reachablePresentation(), 0);
     }
@@ -343,6 +347,10 @@ class HeishaMon extends IPSModule
             : $this->Translate('ℹ️ The time schedule is not used. Enable it above.');
         $this->patchFormElement($form['elements'], 'SchedStatus', function (&$element) use ($schedLine) {
             $element['caption'] = $schedLine;
+        });
+        $emsRunLine = $this->emsRunStatusLine();
+        $this->patchFormElement($form['elements'], 'EmsRunStatus', function (&$element) use ($emsRunLine) {
+            $element['caption'] = $emsRunLine;
         });
         $priceLine = $this->heatAutoPriceStatusLine();
         $batteryLine = $this->heatAutoBatteryStatusLine();
@@ -566,7 +574,8 @@ class HeishaMon extends IPSModule
         'RulesetsPanel'      => 'rulesets',
         'WatchdogPanel'      => 'watchdog',
         'ArchivePanel'       => 'archive',
-        'ExtraCommandsPanel' => 'extra'
+        'ExtraCommandsPanel' => 'extra',
+        'EmsPanel'           => 'ems'
     ];
 
     /**
@@ -1019,6 +1028,7 @@ class HeishaMon extends IPSModule
 
         $this->maintainHeatingAutomation();
         $this->maintainSchedule();
+        $this->maintainEmsRun();
 
         $this->SendDebug('VariableList', (string) $this->ReadPropertyString('VariableList'), 0);
 
@@ -2011,6 +2021,11 @@ class HeishaMon extends IPSModule
                 break;
         }
 
+        //Warmwasser-Zusatzlauf fuer das EMS: Ist-Zustand der Anlage spiegeln
+        if ($subTopic == 'main/Force_DHW_State') {
+            $this->emsRunMirror();
+        }
+
         //Vereinheitlichte Betriebsart (Verbund-Enum) nachfuehren
         if ($subTopic == 'main/Operating_Mode_State' && @$this->GetIDForIdent('Operating_Mode_Norm') !== false) {
             $this->SetValue('Operating_Mode_Norm', $this->normalizeOperatingMode(intval($payload)));
@@ -2384,6 +2399,11 @@ class HeishaMon extends IPSModule
      *            Ab contractVersion 1.15 additiv: HEISHA_GetHeatingAutomation/HEISHA_SetHeatingAutomation
      *            (Heizungs-Automatik) sowie in zones.zX.shift.heat|cool die Felder minC, maxC und
      *            presets (eco/normal/comfort) fuer Regler und Schnellwahl.
+     *   optionalRunID  Ab contractVersion 1.18 (WP-Steuermuster): schaltbarer Warmwasser-Zusatzlauf (Variable
+     *            Optional_Run, nur wenn der Nutzer das EMS dafuer freigegeben hat, sonst 0). Schreiben true = Ein-Wunsch
+     *            (SetForceDHW), false = Abbruch eines vom Modul gestarteten Laufs; der gelesene Wert ist der Ist-Zustand
+     *            der Anlage. controllable = true nur mit Freigabe. optionalRunPowerID/optionalRunPowerMaxID,
+     *            powerLimitID und powerLimitActiveID sind 0.
      *   contractVersion 'Major.Minor' des Vertrags (Suite-Konvention, SUITE.md im EMS-Repo).
      *            Major nur bei Bruch; Kompatibilitaet nur innerhalb derselben Major. Fehlt = '1.0'.
      */
@@ -2442,7 +2462,15 @@ class HeishaMon extends IPSModule
                 'internalHeaterStateID' => $this->idForIdent('Internal_Heater_State'),
                 'externalHeaterStateID' => $this->idForIdent('External_Heater_State'),
                 'forceHeaterStateID'   => $this->idForIdent('Force_Heater_State'),
-                'contractVersion'      => '1.16'
+                //WP-Steuermuster (heatpump-Vertrag 1.18): nur der Warmwasser-Zusatzlauf, und nur mit Freigabe des Nutzers;
+                //Leistungsfelder und Leistungsgrenze kann die Anlage nicht, daher 0
+                'optionalRunID'        => $this->idForIdent('Optional_Run'),
+                'optionalRunPowerID'   => 0,
+                'optionalRunPowerMaxID' => 0,
+                'powerLimitID'         => 0,
+                'powerLimitActiveID'   => 0,
+                'controllable'         => $this->idForIdent('Optional_Run') > 0,
+                'contractVersion'      => '1.18'
             ]
         ];
     }
@@ -2518,6 +2546,11 @@ class HeishaMon extends IPSModule
         if ($Ident === 'SmartGridMode') {
             $this->SetValue($Ident, intval($Value));
             $this->SendSetCommand('SetSmartGridMode', strval(intval($Value)));
+            return;
+        }
+        if ($Ident === 'Optional_Run') {
+            //Der Wert der Variable ist der Ist-Zustand der Anlage (Force_DHW_State), nicht der Wunsch (heatpump-Vertrag 1.18)
+            $this->emsRunRequest(boolval($Value));
             return;
         }
         if ($Ident === 'Sched_Active') {
@@ -3231,6 +3264,255 @@ class HeishaMon extends IPSModule
     private const SCHED_TICK_MS = 60000;
     private const SCHED_MAX_TRIES = 3;
     private const SCHED_MIN_WRITE_GAP = 300;
+
+    // ------------------------------------------------------------------------------------------------
+    // Warmwasser-Zusatzlauf fuer das EMS (WP-Steuermuster, heatpump-Vertrag 1.18)
+    // ------------------------------------------------------------------------------------------------
+    //Das EMS darf bei PV-Ueberschuss einen Warmwasser-Lauf (Bedienbefehl SetForceDHW, entspricht der Warmwasser-Taste) anfordern.
+    //Nur mit Freigabe des Nutzers (ab Werk aus). Keine Einstellwerte der Anlage, keine Kurven: ob SetForceDHW im EEPROM landet,
+    //ist nicht dokumentiert, deshalb begrenzen Mindestabstand und Tagesgrenze die Zahl der Befehle.
+
+    private const EMSRUN_TICK_MS = 60000;
+    private const EMSRUN_VERIFY_SECONDS = 45;
+    private const EMSRUN_RETRIES = 3;
+    /** Betriebsarten (Operating_Mode_State) mit Warmwasser: 3 nur WW, 4 Heizen+WW, 5 Kuehlen+WW, 6 Auto+WW, 8 Auto(Kuehlen)+WW */
+    private const EMSRUN_DHW_MODES = [3, 4, 5, 6, 8];
+
+    private function registerEmsRun()
+    {
+        $this->RegisterPropertyBoolean('EmsRunEnabled', false);
+        $this->RegisterPropertyInteger('EmsRunMinGapMinutes', 60);
+        $this->RegisterPropertyInteger('EmsRunMaxPerDay', 4);
+        $this->RegisterPropertyInteger('EmsRunMaxMinutes', 120);
+        $this->RegisterPropertyInteger('EmsRunMinDeltaK', 3);
+        //Startzeiten (Unix) der letzten 24 Stunden, Beginn eines von uns gestarteten Laufs (0 = keiner), offener Befehl
+        $this->RegisterAttributeString('EmsRunStarts', '[]');
+        $this->RegisterAttributeInteger('EmsRunStartedAt', 0);
+        $this->RegisterAttributeString('EmsRunPending', '');
+        $this->RegisterAttributeInteger('EmsRunSentAt', 0);
+        $this->RegisterAttributeInteger('EmsRunTries', 0);
+        $this->RegisterAttributeString('EmsRunLastRefusal', '');
+        $this->RegisterAttributeInteger('EmsRunLastRefusalAt', 0);
+        $this->RegisterTimer('EmsRunTick', 0, 'HEISHA_EmsRunTick($_IPS[\'TARGET\']);');
+    }
+
+    /** Variable/Timer je nach Freigabe anlegen bzw. entfernen; wird die Freigabe zurueckgenommen, endet ein eigener Lauf. */
+    private function maintainEmsRun()
+    {
+        if (!$this->ReadPropertyBoolean('EmsRunEnabled')) {
+            $this->SetTimerInterval('EmsRunTick', 0);
+            if ((int) $this->ReadAttributeInteger('EmsRunStartedAt') > 0 && (bool) $this->emsRunValue('Force_DHW_State')) {
+                $this->SendSetCommand('SetForceDHW', '0');
+            }
+            $this->WriteAttributeInteger('EmsRunStartedAt', 0);
+            $this->WriteAttributeString('EmsRunPending', '');
+            if (@$this->GetIDForIdent('Optional_Run') !== false) {
+                $this->MaintainVariable('Optional_Run', $this->Translate('Hot water boost (EMS)'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 280, false);
+            }
+            return;
+        }
+        $this->maintainDefaultPresentation('Optional_Run', $this->Translate('Hot water boost (EMS)'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 280);
+        $this->EnableAction('Optional_Run');
+        $this->SetTimerInterval('EmsRunTick', self::EMSRUN_TICK_MS);
+        $this->emsRunMirror();
+    }
+
+    /** Wert einer Statusvariable oder null, wenn es sie (noch) nicht gibt. */
+    private function emsRunValue(string $ident)
+    {
+        $variableID = @$this->GetIDForIdent($ident);
+        return $variableID === false ? null : GetValue($variableID);
+    }
+
+    /** Optional_Run zeigt den Ist-Zustand der Anlage (Force_DHW_State), nicht den Wunsch. */
+    private function emsRunMirror()
+    {
+        if (@$this->GetIDForIdent('Optional_Run') === false) {
+            return;
+        }
+        $running = (bool) $this->emsRunValue('Force_DHW_State');
+        if ((bool) GetValue($this->GetIDForIdent('Optional_Run')) !== $running) {
+            $this->SetValue('Optional_Run', $running);
+        }
+    }
+
+    /** Startzeiten der letzten 24 Stunden. */
+    private function emsRunStarts(int $now): array
+    {
+        $starts = json_decode((string) $this->ReadAttributeString('EmsRunStarts'), true);
+        $starts = is_array($starts) ? $starts : [];
+        return array_values(array_filter(array_map('intval', $starts), fn ($t) => $t > $now - 86400 && $t <= $now));
+    }
+
+    /** Grund, warum jetzt kein Zusatzlauf gestartet wird (englischer Schluessel), '' = darf starten. */
+    private function emsRunRefusal(int $now): string
+    {
+        if ($this->emsRunValue('Reachable') === false) {
+            return 'The heat pump is not reachable';
+        }
+        if ($this->emsRunValue('Force_DHW_State') === null) {
+            return 'The datapoint "Force DHW" has not been received';
+        }
+        $mode = $this->emsRunValue('Operating_Mode_State');
+        if ($mode === null) {
+            return 'The operating mode is unknown';
+        }
+        if (!in_array((int) $mode, self::EMSRUN_DHW_MODES, true)) {
+            return 'The operating mode does not include hot water';
+        }
+        if ((bool) $this->emsRunValue('Defrosting_State')) {
+            return 'Defrosting is running';
+        }
+        if ((bool) $this->emsRunValue('Sterilization_State')) {
+            return 'The legionella protection is running';
+        }
+        if ((bool) $this->emsRunValue('Force_Heater_State')) {
+            return 'The backup heater is forced';
+        }
+        $target = $this->emsRunValue('DHW_Target_Temp');
+        $actual = $this->emsRunValue('DHW_Temp');
+        if ($target === null || $actual === null) {
+            return 'The hot water temperature is unknown';
+        }
+        if (floatval($target) - floatval($actual) < max(1, (int) $this->ReadPropertyInteger('EmsRunMinDeltaK'))) {
+            return 'The hot water is already close to its target temperature';
+        }
+        $starts = $this->emsRunStarts($now);
+        if (count($starts) > 0 && $now - max($starts) < max(1, (int) $this->ReadPropertyInteger('EmsRunMinGapMinutes')) * 60) {
+            return 'The minimum interval since the last boost has not passed';
+        }
+        if (count($starts) >= max(1, (int) $this->ReadPropertyInteger('EmsRunMaxPerDay'))) {
+            return 'The daily limit of boosts is reached';
+        }
+        return '';
+    }
+
+    private function emsRunSend(bool $on, int $now)
+    {
+        $this->SendSetCommand('SetForceDHW', $on ? '1' : '0');
+        $this->WriteAttributeString('EmsRunPending', $on ? 'on' : 'off');
+        $this->WriteAttributeInteger('EmsRunSentAt', $now);
+        $this->WriteAttributeInteger('EmsRunTries', 1);
+    }
+
+    /** Wunsch des EMS (RequestAction auf Optional_Run): true = Warmwasser-Lauf anfordern, false = eigenen Lauf abbrechen. */
+    private function emsRunRequest(bool $on)
+    {
+        if (!$this->ReadPropertyBoolean('EmsRunEnabled')) {
+            return;
+        }
+        $now = time();
+        $running = (bool) $this->emsRunValue('Force_DHW_State');
+        $pending = (string) $this->ReadAttributeString('EmsRunPending');
+        if ($on) {
+            if ($running || $pending === 'on') {
+                $this->SendDebug('EmsRun', 'Hot water boost already running or requested', 0);
+                return;
+            }
+            $reason = $this->emsRunRefusal($now);
+            if ($reason !== '') {
+                $this->WriteAttributeString('EmsRunLastRefusal', $reason);
+                $this->WriteAttributeInteger('EmsRunLastRefusalAt', $now);
+                $this->LogMessage('Hot water boost for EMS not started: ' . $reason, KL_MESSAGE);
+                return;
+            }
+            $starts = $this->emsRunStarts($now);
+            $starts[] = $now;
+            $this->WriteAttributeString('EmsRunStarts', json_encode($starts));
+            $this->WriteAttributeInteger('EmsRunStartedAt', $now);
+            $this->emsRunSend(true, $now);
+            $this->LogMessage('Hot water boost for EMS started (SetForceDHW 1)', KL_MESSAGE);
+            return;
+        }
+        //Abbruch nur, wenn der Lauf von uns stammt - ein von Hand gestarteter Lauf bleibt unberuehrt
+        if ((int) $this->ReadAttributeInteger('EmsRunStartedAt') === 0) {
+            if ($running) {
+                $this->SendDebug('EmsRun', 'Running hot water boost was not started by this module - left alone', 0);
+            }
+            return;
+        }
+        $this->WriteAttributeInteger('EmsRunStartedAt', 0);
+        if ($running || $pending === 'on') {
+            $this->emsRunSend(false, $now);
+            $this->LogMessage('Hot water boost for EMS cancelled (SetForceDHW 0)', KL_MESSAGE);
+        } else {
+            $this->WriteAttributeString('EmsRunPending', '');
+        }
+    }
+
+    /** Minuetlich: Befehl kontrollieren (45 s, bis zu 3 Versuche), Sicherheitsabbruch, Ende des Laufs erkennen. */
+    public function EmsRunTick()
+    {
+        if (!$this->ReadPropertyBoolean('EmsRunEnabled')) {
+            return;
+        }
+        $now = time();
+        $running = (bool) $this->emsRunValue('Force_DHW_State');
+        $pending = (string) $this->ReadAttributeString('EmsRunPending');
+        $this->emsRunMirror();
+
+        if ($pending !== '') {
+            if ($running === ($pending === 'on')) {
+                $this->WriteAttributeString('EmsRunPending', '');
+                $this->WriteAttributeInteger('EmsRunTries', 0);
+                $pending = '';
+            } elseif ($now - (int) $this->ReadAttributeInteger('EmsRunSentAt') >= self::EMSRUN_VERIFY_SECONDS) {
+                $tries = (int) $this->ReadAttributeInteger('EmsRunTries');
+                if ($tries < self::EMSRUN_RETRIES) {
+                    $this->SendSetCommand('SetForceDHW', $pending === 'on' ? '1' : '0');
+                    $this->WriteAttributeInteger('EmsRunSentAt', $now);
+                    $this->WriteAttributeInteger('EmsRunTries', $tries + 1);
+                } else {
+                    $this->LogMessage('Hot water boost for EMS: the heat pump did not take over the command', KL_WARNING);
+                    $this->WriteAttributeString('EmsRunPending', '');
+                    $this->WriteAttributeInteger('EmsRunTries', 0);
+                    if ($pending === 'on') {
+                        $this->WriteAttributeInteger('EmsRunStartedAt', 0);
+                    }
+                }
+                return;
+            } else {
+                return;
+            }
+        }
+
+        $startedAt = (int) $this->ReadAttributeInteger('EmsRunStartedAt');
+        if ($startedAt === 0) {
+            return;
+        }
+        if (!$running) {
+            //der Lauf ist beendet (von selbst oder von Hand)
+            $this->WriteAttributeInteger('EmsRunStartedAt', 0);
+            $this->LogMessage('Hot water boost for EMS ended', KL_MESSAGE);
+            return;
+        }
+        if ($now - $startedAt >= max(1, (int) $this->ReadPropertyInteger('EmsRunMaxMinutes')) * 60) {
+            $this->WriteAttributeInteger('EmsRunStartedAt', 0);
+            $this->emsRunSend(false, $now);
+            $this->LogMessage('Hot water boost for EMS cancelled: maximum duration reached', KL_WARNING);
+        }
+    }
+
+    /** Statuszeile im Formular. */
+    private function emsRunStatusLine(): string
+    {
+        if (!$this->ReadPropertyBoolean('EmsRunEnabled')) {
+            return $this->Translate('ℹ️ The hot water boost for the EMS is not enabled. Enable it above.');
+        }
+        $now = time();
+        if ((bool) $this->emsRunValue('Force_DHW_State')) {
+            return $this->Translate((int) $this->ReadAttributeInteger('EmsRunStartedAt') > 0
+                ? '🔥 A hot water boost requested by the EMS is running.'
+                : '🔥 A hot water boost is running (not started by the EMS).');
+        }
+        $line = sprintf($this->Translate('✅ Ready: the EMS may request a hot water boost (%d of %d boosts in the last 24 hours).'), count($this->emsRunStarts($now)), (int) $this->ReadPropertyInteger('EmsRunMaxPerDay'));
+        $refusal = (string) $this->ReadAttributeString('EmsRunLastRefusal');
+        $refusedAt = (int) $this->ReadAttributeInteger('EmsRunLastRefusalAt');
+        if ($refusal !== '' && $now - $refusedAt < 86400) {
+            $line .= ' ' . sprintf($this->Translate('Last request refused at %s: %s.'), date('H:i', $refusedAt), $this->Translate($refusal));
+        }
+        return $line;
+    }
 
     private function registerSchedule()
     {
