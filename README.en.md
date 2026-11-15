@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Module version](https://img.shields.io/badge/Module_Version-1.42.0-blue)
+![Module version](https://img.shields.io/badge/Module_Version-1.43.0-blue)
 ![Symcon version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -159,6 +159,10 @@ The EMS can request a **hot water run** when there is surplus PV power: the heat
 - **Cancel:** `false` only cancels a run started by the module; a run started by hand is left alone. A run the module started itself ends after 2 hours (adjustable).
 - **Read value:** `Optional_Run` shows the real state of the unit, not the request. The EMS remembers its own request.
 - The module does not deliver power fields (`optionalRunPowerID`, `optionalRunPowerMaxID`) or a power limit (`powerLimitID`, `powerLimitActiveID`); they are 0. `contractVersion` '1.18'.
+
+### Room-guided shift (optional, since version 1.43.0)
+
+A slow controller that adapts the planned heating shift of the schedule to the rooms. Every 10 minutes the module notes the room temperature (the same rooms as the heating automation: your own selection or automatically through Raumstruktur, median) while the heating is running. After at least 20 hours of data it compares the **24 hour mean** with the target band (default 22.0 °C ± 0.5 K): if the rooms are above it, an **offset** is lowered by 1 K, if they are below it, the offset is raised by 1 K. At most one change per hold time (default 24 hours) and at most ±3 K. The schedule applies "planned value + offset" with its usual check, and the result stays between −5 and +5 K, so only a few changes a day reach the heat pump. It needs an enabled heating channel in the schedule. Off by default; set it in the "Time schedule" area. The offset appears in the variable `Room-guided shift offset` and in `HEISHA_GetSchedule()['roomShift']`.
 
 ## Energy saving check
 

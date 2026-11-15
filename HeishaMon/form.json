@@ -816,6 +816,73 @@
                     "type": "Label",
                     "name": "SchedStatus",
                     "caption": "SCHEDSTATUS"
+                },
+                {
+                    "type": "Label",
+                    "caption": "Room-guided shift (optional): a slow controller that adds an offset to the planned heating shift of the schedule. If the rooms are warmer than the target on average over 24 hours, the offset is lowered by 1 K, if they are colder, it is raised by 1 K. Off by default; it needs an enabled heating channel in the schedule."
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "CheckBox",
+                            "name": "RoomShiftEnabled",
+                            "caption": "Guide the shift by the room temperature"
+                        },
+                        {
+                            "type": "PopupButton",
+                            "caption": "How does the room-guided shift work?",
+                            "width": "400px",
+                            "popup": {
+                                "caption": "How does the room-guided shift work?",
+                                "items": [
+                                    {
+                                        "type": "Label",
+                                        "caption": "Every 10 minutes the module notes the room temperature (the same rooms as the heating automation: your own selection or the rooms found through Raumstruktur, median) while the heating is running. After at least 20 hours of data it compares the 24 hour mean with the target band. Above the band the offset is lowered by 1 K, below it raised by 1 K, within the limit and at most once per hold time, so only a few changes a day reach the heat pump. The module does not write to the heat pump itself: the time schedule applies \"planned value plus offset\" with its usual check and flutter protection. The offset applies to the heating channels of zone 1 and zone 2. The result stays within -5 to +5 K. The offset is also shown by the variable \"Room-guided shift offset\" and in the interface of the schedule."
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "RoomShiftTargetC",
+                    "caption": "Target room temperature",
+                    "suffix": " °C",
+                    "digits": 1,
+                    "minimum": 16,
+                    "maximum": 26
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "RoomShiftBandK",
+                    "caption": "Tolerance around the target",
+                    "suffix": " K",
+                    "digits": 1,
+                    "minimum": 0.2,
+                    "maximum": 3
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "RoomShiftHoldHours",
+                    "caption": "Hold time between two changes",
+                    "suffix": " h",
+                    "minimum": 6,
+                    "maximum": 72
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "RoomShiftMaxOffset",
+                    "caption": "Maximum offset up and down",
+                    "suffix": " K",
+                    "minimum": 1,
+                    "maximum": 5
+                },
+                {
+                    "type": "Label",
+                    "name": "RoomShiftStatus",
+                    "caption": "ROOMSHIFTSTATUS"
                 }
             ]
         },

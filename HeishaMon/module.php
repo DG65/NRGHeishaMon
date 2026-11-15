@@ -111,6 +111,9 @@ class HeishaMon extends IPSModule
         ],
         '1.42.0' => [
             'New: the daily values are now split into heating, hot water and standby: heat energy and electrical energy per operating mode and a separate performance factor for heating and for hot water (only with an energy meter, as for the performance factor today). The electrical energy is assigned to hot water while the compressor runs with the 3-way valve on hot water, to heating while it runs otherwise, and to standby while it stands still.'
+        ],
+        '1.43.0' => [
+            'New: room-guided shift (optional, off by default, in the "Time schedule" panel). A slow controller adds an offset to the planned heating shift of the schedule: if the rooms are warmer than the target on average over 24 hours, the offset is lowered by 1 K, if they are colder, it is raised by 1 K, at most once per hold time (24 hours by default) and within a limit (3 K by default). The time schedule applies the result with its usual check, so only a few changes a day reach the heat pump.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -360,6 +363,10 @@ class HeishaMon extends IPSModule
             : $this->Translate('ℹ️ The time schedule is not used. Enable it above.');
         $this->patchFormElement($form['elements'], 'SchedStatus', function (&$element) use ($schedLine) {
             $element['caption'] = $schedLine;
+        });
+        $roomShiftLine = $this->roomShiftStatusLine();
+        $this->patchFormElement($form['elements'], 'RoomShiftStatus', function (&$element) use ($roomShiftLine) {
+            $element['caption'] = $roomShiftLine;
         });
         $emsRunLine = $this->emsRunStatusLine();
         $this->patchFormElement($form['elements'], 'EmsRunStatus', function (&$element) use ($emsRunLine) {
@@ -3674,6 +3681,17 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeString('SchedLastError', '');
         $this->RegisterAttributeInteger('SchedLastErrorAt', 0);
         $this->RegisterTimer('SchedTick', 0, 'HEISHA_ScheduleTick($_IPS[\'TARGET\']);');
+        //Raumfuehrung der Verschiebung (seit 1.43.0): ein langsamer Versatz auf den geplanten Wert der Heiz-Kanaele
+        $this->RegisterPropertyBoolean('RoomShiftEnabled', false);
+        $this->RegisterPropertyFloat('RoomShiftTargetC', 22.0);
+        $this->RegisterPropertyFloat('RoomShiftBandK', 0.5);
+        $this->RegisterPropertyInteger('RoomShiftHoldHours', 24);
+        $this->RegisterPropertyInteger('RoomShiftMaxOffset', 3);
+        $this->RegisterAttributeInteger('RoomShiftOffset', 0);
+        $this->RegisterAttributeInteger('RoomShiftChangedAt', 0);
+        $this->RegisterAttributeString('RoomShiftRing', '[]');
+        $this->RegisterAttributeInteger('RoomShiftSampleAt', 0);
+        $this->RegisterAttributeString('RoomShiftReason', '');
     }
 
     private function maintainSchedule()
@@ -3688,6 +3706,17 @@ class HeishaMon extends IPSModule
         $this->maintainDefaultPresentation('Sched_Active', $this->Translate('Time schedule'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 275);
         $this->EnableAction('Sched_Active');
         $this->maintainDefaultPresentation('Sched_Status', $this->Translate('Time schedule: status'), VARIABLETYPE_STRING, ['PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION], 276);
+        if ($this->ReadPropertyBoolean('RoomShiftEnabled')) {
+            $this->maintainDefaultPresentation('RoomShift_Offset', $this->Translate('Room-guided shift offset'), VARIABLETYPE_INTEGER, ['PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION, 'SUFFIX' => ' K'], 277);
+            $this->SetValue('RoomShift_Offset', (int) $this->ReadAttributeInteger('RoomShiftOffset'));
+        } else {
+            //Raumfuehrung aus: der Versatz entfaellt, der Plan gilt wieder unveraendert
+            $this->WriteAttributeInteger('RoomShiftOffset', 0);
+            $this->WriteAttributeString('RoomShiftRing', '[]');
+            if (@$this->GetIDForIdent('RoomShift_Offset') !== false) {
+                $this->MaintainVariable('RoomShift_Offset', $this->Translate('Room-guided shift offset'), VARIABLETYPE_INTEGER, [], 277, false);
+            }
+        }
         $this->SetTimerInterval('SchedTick', self::SCHED_TICK_MS);
     }
 
@@ -3711,6 +3740,176 @@ class HeishaMon extends IPSModule
             }
         }
         return $plan;
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    // Raumfuehrung der Verschiebung (seit 1.43.0)
+    // ------------------------------------------------------------------------------------------------
+    //Ein langsamer Regler, der die Verschiebung der Heiz-Kanaele des Zeitplans nachfuehrt: Liegt die Raumtemperatur im 24-h-Mittel
+    //ueber dem Zielband, wird der Versatz um 1 K gesenkt, liegt sie darunter, um 1 K angehoben. Er schreibt nicht selbst in die Anlage,
+    //sondern der Zeitplan (einziger Schreiber der Verschiebung) setzt "geplanter Wert + Versatz" mit seiner Kontrolle und dem
+    //Flatter-Schutz um. Hoechstens eine Aenderung je Haltezeit (Standard 24 h), also wenige Schreibvorgaenge am Tag.
+
+    private const ROOMSHIFT_SAMPLE_SECONDS = 600;
+    private const ROOMSHIFT_WINDOW_SECONDS = 86400;
+    private const ROOMSHIFT_MIN_SPAN_SECONDS = 72000;
+    private const ROOMSHIFT_MIN_SAMPLES = 100;
+    /** Betriebsarten, in denen geheizt wird: 0 nur Heizen, 2 Auto, 4 Heizen+WW, 6 Auto+WW */
+    private const ROOMSHIFT_HEAT_MODES = [0, 2, 4, 6];
+
+    /** Versatz auf den geplanten Wert eines Kanals: nur die Heiz-Kanaele, nur mit eingeschalteter Raumfuehrung. */
+    private function roomShiftOffsetFor(string $key): int
+    {
+        if (!$this->ReadPropertyBoolean('RoomShiftEnabled') || !in_array($key, ['z1Heat', 'z2Heat'], true)) {
+            return 0;
+        }
+        return (int) $this->ReadAttributeInteger('RoomShiftOffset');
+    }
+
+    /** Wirksamer Sollwert eines Kanals: geplanter Wert plus Versatz der Raumfuehrung, innerhalb der Grenzen des Kanals. */
+    private function scheduleEffectiveValue(string $key, array $channel, int $now): int
+    {
+        $planned = HeishaSchedule::plannedValue($channel, $now);
+        $offset = $this->roomShiftOffsetFor($key);
+        if ($offset === 0) {
+            return $planned;
+        }
+        $definition = HeishaSchedule::CHANNELS[$key];
+        return max((int) $definition['min'], min((int) $definition['max'], $planned + $offset));
+    }
+
+    /** Heizt die Anlage gerade? Mit Heizungs-Automatik gilt deren Zustand, sonst die Betriebsart. */
+    private function roomShiftHeating(): bool
+    {
+        if ($this->emsRunValue('Heatpump_State') === false) {
+            return false;
+        }
+        $mode = $this->emsRunValue('Operating_Mode_State');
+        if ($mode === null || !in_array((int) $mode, self::ROOMSHIFT_HEAT_MODES, true)) {
+            return false;
+        }
+        if ($this->ReadPropertyBoolean('HeatAutoEnabled') && (string) $this->ReadAttributeString('HeatAutoState') !== '') {
+            return (string) $this->ReadAttributeString('HeatAutoState') === 'heating';
+        }
+        return true;
+    }
+
+    /** Mittel der Raumtemperatur der letzten 24 Stunden, null wenn die Beobachtung noch nicht reicht. */
+    private function roomShiftMean(array $ring, int $now): ?float
+    {
+        if (count($ring) < self::ROOMSHIFT_MIN_SAMPLES) {
+            return null;
+        }
+        $span = $ring[count($ring) - 1][0] - $ring[0][0];
+        if ($span < self::ROOMSHIFT_MIN_SPAN_SECONDS) {
+            return null;
+        }
+        return array_sum(array_column($ring, 1)) / count($ring);
+    }
+
+    private function roomShiftTick(int $now)
+    {
+        if (!$this->ReadPropertyBoolean('RoomShiftEnabled') || !$this->scheduleIsActive()) {
+            return;
+        }
+        if ($now - (int) $this->ReadAttributeInteger('RoomShiftSampleAt') < self::ROOMSHIFT_SAMPLE_SECONDS) {
+            return;
+        }
+        $this->WriteAttributeInteger('RoomShiftSampleAt', $now);
+
+        $plan = $this->schedulePlan();
+        if (!$plan['channels']['z1Heat']['enabled'] && !$plan['channels']['z2Heat']['enabled']) {
+            $this->WriteAttributeString('RoomShiftReason', 'No heating channel of the time schedule is enabled');
+            return;
+        }
+        if (!$this->roomShiftHeating()) {
+            $this->WriteAttributeString('RoomShiftReason', 'The heating is not running');
+            return;
+        }
+        $rooms = $this->heatAutoRooms();
+        if ($rooms['mean'] === null || $rooms['count'] < 1 || ($rooms['mode'] === 'none')) {
+            $this->WriteAttributeString('RoomShiftReason', 'No rooms with a valid temperature');
+            return;
+        }
+
+        //Messreihe: alle 10 Minuten ein Wert, 24 Stunden Fenster; eine Luecke ueber 3 Stunden verwirft die alte Reihe
+        $ring = json_decode((string) $this->ReadAttributeString('RoomShiftRing'), true);
+        $ring = is_array($ring) ? $ring : [];
+        if ($ring !== [] && $now - (int) $ring[count($ring) - 1][0] > 10800) {
+            $ring = [];
+        }
+        $ring[] = [$now, round((float) $rooms['mean'], 2)];
+        $ring = array_values(array_filter($ring, fn ($row) => $row[0] > $now - self::ROOMSHIFT_WINDOW_SECONDS));
+        $this->WriteAttributeString('RoomShiftRing', json_encode($ring));
+
+        $mean = $this->roomShiftMean($ring, $now);
+        if ($mean === null) {
+            $this->WriteAttributeString('RoomShiftReason', 'Collecting room temperatures');
+            return;
+        }
+        $hold = max(6, (int) $this->ReadPropertyInteger('RoomShiftHoldHours')) * 3600;
+        if ($now - (int) $this->ReadAttributeInteger('RoomShiftChangedAt') < $hold) {
+            $this->WriteAttributeString('RoomShiftReason', 'Waiting after the last change');
+            return;
+        }
+        $target = (float) $this->ReadPropertyFloat('RoomShiftTargetC');
+        $band = max(0.1, (float) $this->ReadPropertyFloat('RoomShiftBandK'));
+        $max = max(1, min(5, (int) $this->ReadPropertyInteger('RoomShiftMaxOffset')));
+        $offset = (int) $this->ReadAttributeInteger('RoomShiftOffset');
+        $new = $offset;
+        if ($mean > $target + $band) {
+            $new = max(-$max, $offset - 1);
+        } elseif ($mean < $target - $band) {
+            $new = min($max, $offset + 1);
+        }
+        if ($new === $offset) {
+            $this->WriteAttributeString('RoomShiftReason', $mean > $target + $band || $mean < $target - $band ? 'The offset limit is reached' : 'The rooms are within the target band');
+            return;
+        }
+        $this->WriteAttributeInteger('RoomShiftOffset', $new);
+        $this->WriteAttributeInteger('RoomShiftChangedAt', $now);
+        $this->WriteAttributeString('RoomShiftRing', '[]');
+        $this->WriteAttributeString('RoomShiftReason', 'Offset changed');
+        if (@$this->GetIDForIdent('RoomShift_Offset') !== false) {
+            $this->SetValue('RoomShift_Offset', $new);
+        }
+        $this->LogMessage(sprintf('Room-guided shift: offset %+d -> %+d K (24 h room mean %.1f C, target %.1f C +/- %.1f K)', $offset, $new, $mean, $target, $band), KL_MESSAGE);
+    }
+
+    /** Zustand der Raumfuehrung fuer GetSchedule(). */
+    private function roomShiftInfo(): array
+    {
+        $enabled = $this->ReadPropertyBoolean('RoomShiftEnabled');
+        $ring = json_decode((string) $this->ReadAttributeString('RoomShiftRing'), true);
+        $ring = is_array($ring) ? $ring : [];
+        $mean = $ring === [] ? null : $this->roomShiftMean($ring, time());
+        $reason = (string) $this->ReadAttributeString('RoomShiftReason');
+        return [
+            'enabled'   => $enabled,
+            'offset'    => $enabled ? (int) $this->ReadAttributeInteger('RoomShiftOffset') : 0,
+            'targetC'   => (float) $this->ReadPropertyFloat('RoomShiftTargetC'),
+            'bandK'     => (float) $this->ReadPropertyFloat('RoomShiftBandK'),
+            'meanC'     => $mean === null ? null : round($mean, 1),
+            'changedAt' => (int) $this->ReadAttributeInteger('RoomShiftChangedAt'),
+            'reason'    => $enabled && $reason !== '' ? $this->Translate($reason) : ''
+        ];
+    }
+
+    /** Statuszeile im Formular. */
+    private function roomShiftStatusLine(): string
+    {
+        if (!$this->ReadPropertyBoolean('RoomShiftEnabled')) {
+            return $this->Translate('ℹ️ The room-guided shift is not used. Enable it above.');
+        }
+        $info = $this->roomShiftInfo();
+        $line = sprintf($this->Translate('🏠 Room-guided shift: offset %+d K, target %s °C.'), $info['offset'], $this->heatAutoNumber($info['targetC']));
+        if ($info['meanC'] !== null) {
+            $line .= ' ' . sprintf($this->Translate('24 h room mean %s °C.'), $this->heatAutoNumber($info['meanC']));
+        }
+        if ($info['reason'] !== '') {
+            $line .= ' ' . $info['reason'] . '.';
+        }
+        return $line;
     }
 
     /** Verfuegbarkeit, Istwert und Befehl eines Kanals. */
@@ -3737,7 +3936,9 @@ class HeishaMon extends IPSModule
 
     public function ScheduleTick()
     {
-        $this->scheduleProcess(time());
+        $now = time();
+        $this->roomShiftTick($now);
+        $this->scheduleProcess($now);
     }
 
     /**
@@ -3788,7 +3989,7 @@ class HeishaMon extends IPSModule
             }
             $stateBefore = (string) ($rec['state'] ?? 'off');
             $sinceBefore = (int) ($rec['stateSince'] ?? 0);
-            $planned = $holding && $rec['lastPlanned'] !== null ? (int) $rec['lastPlanned'] : HeishaSchedule::plannedValue($channel, $now);
+            $planned = $holding && $rec['lastPlanned'] !== null ? (int) $rec['lastPlanned'] : $this->scheduleEffectiveValue($key, $channel, $now);
             if ($rec['lastPlanned'] !== $planned) {
                 //neue Schaltzeit (oder erster Lauf): Sollwert gilt ab jetzt, ein vorheriger manueller Eingriff endet
                 $rec = ['lastPlanned' => $planned, 'pending' => true, 'tries' => 0, 'lastSend' => 0, 'state' => 'pending', 'lastNewSend' => (int) ($rec['lastNewSend'] ?? 0), 'unverified' => false];
@@ -3917,7 +4118,7 @@ class HeishaMon extends IPSModule
                 $parts[] = $this->Translate($definition['label']) . ': ' . $this->Translate('not available');
                 continue;
             }
-            $text = $this->Translate($definition['label']) . ': ' . $this->scheduleValueText($key, HeishaSchedule::plannedValue($plan['channels'][$key], $now));
+            $text = $this->Translate($definition['label']) . ': ' . $this->scheduleValueText($key, $this->scheduleEffectiveValue($key, $plan['channels'][$key], $now));
             if ($state === 'manual') {
                 $text .= ' (' . $this->Translate('changed manually, until the next switching time') . ')';
             } elseif ($state === 'fault') {
@@ -3956,7 +4157,7 @@ class HeishaMon extends IPSModule
                 'enabled'       => $channel['enabled'],
                 'default'       => $channel['default'],
                 'segments'      => $channel['segments'],
-                'plannedNow'    => $info['available'] ? HeishaSchedule::plannedValue($channel, $now) : null,
+                'plannedNow'    => $info['available'] ? $this->scheduleEffectiveValue($key, $channel, $now) : null,
                 'actualNow'     => $info['actual'],
                 'nextChangeAt'  => $info['available'] ? HeishaSchedule::nextChange($channel, $now) : 0,
                 'state'         => $active && $channel['enabled'] ? (string) ($runtime[$key]['state'] ?? 'pending') : 'off',
@@ -3983,6 +4184,7 @@ class HeishaMon extends IPSModule
             'lastErrorAt'             => $lastError === '' ? 0 : (int) $this->ReadAttributeInteger('SchedLastErrorAt'),
             'boardRulesActive'        => $rulesID === 0 ? null : ((int) GetValue($rulesID)) > 0,
             'unitQuietScheduleActive' => $quietScheduleID === 0 ? null : (bool) GetValue($quietScheduleID),
+            'roomShift'               => $this->roomShiftInfo(),
             'channels'                => $channels
         ];
     }

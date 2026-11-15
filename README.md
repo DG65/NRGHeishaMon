@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-1.42.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-1.43.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -159,6 +159,10 @@ Das EMS kann bei PV-Überschuss einen **Warmwasser-Lauf** anfordern: Die Wärmep
 - **Abbruch:** `false` bricht nur einen vom Modul gestarteten Lauf ab, ein von Hand gestarteter bleibt unberührt. Ein selbst gestarteter Lauf wird nach 2 Stunden (einstellbar) beendet.
 - **Lesewert:** `Optional_Run` zeigt den tatsächlichen Zustand der Anlage, nicht den Wunsch. Das EMS merkt sich seinen Wunsch selbst.
 - Leistungsfelder (`optionalRunPowerID`, `optionalRunPowerMaxID`) und Leistungsgrenze (`powerLimitID`, `powerLimitActiveID`) liefert das Modul nicht (0); `contractVersion` '1.18'.
+
+### Raumführung der Verschiebung (optional, ab Version 1.43.0)
+
+Ein langsamer Regler, der die geplante Heiz-Verschiebung des Zeitplans an die Räume anpasst. Alle 10 Minuten notiert das Modul die Raumtemperatur (dieselben Räume wie die Heizungs-Automatik: eigene Auswahl oder automatisch über die Raumstruktur, Median), solange geheizt wird. Nach mindestens 20 Stunden Daten vergleicht es das **24-Stunden-Mittel** mit dem Zielband (Standard 22,0 °C ± 0,5 K): Liegen die Räume darüber, sinkt ein **Versatz** um 1 K, liegen sie darunter, steigt er um 1 K. Höchstens eine Änderung je Haltezeit (Standard 24 Stunden) und höchstens ±3 K. Der Zeitplan setzt „geplanter Wert + Versatz“ mit seiner üblichen Kontrolle um, das Ergebnis bleibt zwischen −5 und +5 K. Es kommen also nur wenige Änderungen am Tag bei der Wärmepumpe an. Voraussetzung ist ein eingeschalteter Heiz-Kanal im Zeitplan. Ab Werk aus; Einstellung im Bereich „Zeitplan“. Der Versatz steht in der Variable `Raumgeführter Verschiebungs-Versatz` und in `HEISHA_GetSchedule()['roomShift']`.
 
 ## Energiespar-Prüfung
 

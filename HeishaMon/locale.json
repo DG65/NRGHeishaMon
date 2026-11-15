@@ -656,7 +656,28 @@
             "Hot water: energy consumption today": "Warmwasser: Stromverbrauch heute",
             "Standby: energy consumption today": "Bereitschaft: Stromverbrauch heute",
             "Performance factor heating today": "Arbeitszahl Heizen heute",
-            "Performance factor hot water today": "Arbeitszahl Warmwasser heute"
+            "Performance factor hot water today": "Arbeitszahl Warmwasser heute",
+            "New: room-guided shift (optional, off by default, in the \"Time schedule\" panel). A slow controller adds an offset to the planned heating shift of the schedule: if the rooms are warmer than the target on average over 24 hours, the offset is lowered by 1 K, if they are colder, it is raised by 1 K, at most once per hold time (24 hours by default) and within a limit (3 K by default). The time schedule applies the result with its usual check, so only a few changes a day reach the heat pump.": "Neu: Raumführung der Verschiebung (optional, ab Werk aus, im Bereich „Zeitplan“). Ein langsamer Regler legt einen Versatz auf die geplante Heiz-Verschiebung des Zeitplans: Sind die Räume im 24-Stunden-Mittel wärmer als das Ziel, wird der Versatz um 1 K gesenkt, sind sie kälter, um 1 K angehoben, höchstens einmal je Haltezeit (standardmäßig 24 Stunden) und innerhalb einer Grenze (standardmäßig 3 K). Der Zeitplan setzt das Ergebnis mit seiner üblichen Kontrolle um, es kommen also nur wenige Änderungen am Tag bei der Wärmepumpe an.",
+            "Room-guided shift offset": "Raumgeführter Verschiebungs-Versatz",
+            "Room-guided shift (optional): a slow controller that adds an offset to the planned heating shift of the schedule. If the rooms are warmer than the target on average over 24 hours, the offset is lowered by 1 K, if they are colder, it is raised by 1 K. Off by default; it needs an enabled heating channel in the schedule.": "Raumführung der Verschiebung (optional): Ein langsamer Regler legt einen Versatz auf die geplante Heiz-Verschiebung des Zeitplans. Sind die Räume im 24-Stunden-Mittel wärmer als das Ziel, wird der Versatz um 1 K gesenkt, sind sie kälter, um 1 K angehoben. Ab Werk aus; er braucht einen eingeschalteten Heiz-Kanal im Zeitplan.",
+            "Guide the shift by the room temperature": "Verschiebung nach der Raumtemperatur führen",
+            "How does the room-guided shift work?": "Wie arbeitet die Raumführung der Verschiebung?",
+            "Every 10 minutes the module notes the room temperature (the same rooms as the heating automation: your own selection or the rooms found through Raumstruktur, median) while the heating is running. After at least 20 hours of data it compares the 24 hour mean with the target band. Above the band the offset is lowered by 1 K, below it raised by 1 K, within the limit and at most once per hold time, so only a few changes a day reach the heat pump. The module does not write to the heat pump itself: the time schedule applies \"planned value plus offset\" with its usual check and flutter protection. The offset applies to the heating channels of zone 1 and zone 2. The result stays within -5 to +5 K. The offset is also shown by the variable \"Room-guided shift offset\" and in the interface of the schedule.": "Alle 10 Minuten notiert das Modul die Raumtemperatur (dieselben Räume wie die Heizungs-Automatik: Ihre eigene Auswahl oder die über die Raumstruktur gefundenen Räume, Median), solange geheizt wird. Nach mindestens 20 Stunden Daten vergleicht es das 24-Stunden-Mittel mit dem Zielband. Über dem Band wird der Versatz um 1 K gesenkt, darunter um 1 K angehoben, innerhalb der Grenze und höchstens einmal je Haltezeit, sodass nur wenige Änderungen am Tag bei der Wärmepumpe ankommen. Das Modul schreibt nicht selbst in die Wärmepumpe: Der Zeitplan setzt „geplanter Wert plus Versatz“ mit seiner üblichen Kontrolle und dem Flatter-Schutz um. Der Versatz gilt für die Heiz-Kanäle von Zone 1 und Zone 2, das Ergebnis bleibt zwischen -5 und +5 K. Den Versatz zeigen auch die Variable „Raumgeführter Verschiebungs-Versatz“ und die Schnittstelle des Zeitplans.",
+            "Target room temperature": "Ziel-Raumtemperatur",
+            "Tolerance around the target": "Toleranz um das Ziel",
+            "Hold time between two changes": "Haltezeit zwischen zwei Änderungen",
+            "Maximum offset up and down": "Höchster Versatz nach oben und unten",
+            "ℹ️ The room-guided shift is not used. Enable it above.": "ℹ️ Die Raumführung der Verschiebung wird nicht verwendet. Oben einschalten.",
+            "🏠 Room-guided shift: offset %+d K, target %s °C.": "🏠 Raumführung der Verschiebung: Versatz %+d K, Ziel %s °C.",
+            "24 h room mean %s °C.": "24-Stunden-Raummittel %s °C.",
+            "No heating channel of the time schedule is enabled": "Kein Heiz-Kanal des Zeitplans ist eingeschaltet",
+            "The heating is not running": "Es wird gerade nicht geheizt",
+            "No rooms with a valid temperature": "Keine Räume mit gültiger Temperatur",
+            "Collecting room temperatures": "Raumtemperaturen werden gesammelt",
+            "Waiting after the last change": "Wartet nach der letzten Änderung",
+            "The offset limit is reached": "Die Grenze des Versatzes ist erreicht",
+            "The rooms are within the target band": "Die Räume liegen im Zielband",
+            "Offset changed": "Versatz geändert"
         }
     }
 }
