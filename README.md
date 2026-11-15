@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-1.41.1-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-1.42.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -107,6 +107,8 @@ Liefert der Zähler (automatisch oder eigen) zusätzlich einen Energiezähler, b
 - **Stromverbrauch heute** — exakt aus dem Zählerstand (Basis wird um Mitternacht neu gesetzt, ein Zähler-Reset wird abgefangen)
 - **Wärmemenge heute** — Integration der thermischen Leistung im 60-Sekunden-Takt (Zwischenstände überleben einen IPS-Neustart)
 - **Arbeitszahl heute** — Verhältnis der beiden; mit Aufzeichnung im Archiv entsteht daraus die Langzeit-Historie
+
+**Aufschlüsselung nach Heizen, Warmwasser und Bereitschaft** (ab Version 1.42.0, nur mit Energiezähler): Das Modul zeigt zusätzlich, wohin die Energie geht und wie gut jede Betriebsart arbeitet: `Heizen: Wärmemenge heute`, `Warmwasser: Wärmemenge heute`, `Heizen: Stromverbrauch heute`, `Warmwasser: Stromverbrauch heute`, `Bereitschaft: Stromverbrauch heute` sowie die Arbeitszahlen `Arbeitszahl Heizen heute` und `Arbeitszahl Warmwasser heute`. Den Strom ordnet das Modul im Minutentakt zu: Läuft der Verdichter und steht das 3-Wege-Ventil auf Warmwasser, geht er ins Warmwasser, läuft der Verdichter sonst, ins Heizen (Kühlen zählt dazu), und steht der Verdichter, in die Bereitschaft (Steuerung, Pumpen, Kurbelwannenheizung). An den Umschaltpunkten ist die Zuordnung ungenau, im Tagesmittel aber belastbar. Die Werte lassen sich wie die übrigen Monitoring-Datenpunkte archivieren.
 
 Hinweis: Läuft der Heizstab, steckt seine Wärme in der gemessenen thermischen Leistung. Da nur die Wärmepumpen-Phase im Nenner steht, fällt der COP in diesen Phasen optisch zu gut aus — für die reine Verdichter-Bewertung ist das aber genau richtig.
 

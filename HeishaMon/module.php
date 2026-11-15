@@ -108,6 +108,9 @@ class HeishaMon extends IPSModule
         ],
         '1.41.1' => [
             'Fix: a request of the EMS for a hot water boost that cannot start right away (for example because the hot water is still close to its target) is now kept by the module for two hours by default. The module starts the run itself as soon as the conditions are met, within the minimum interval and the daily limit; switching the variable off or taking back the enable clears the request.'
+        ],
+        '1.42.0' => [
+            'New: the daily values are now split into heating, hot water and standby: heat energy and electrical energy per operating mode and a separate performance factor for heating and for hot water (only with an energy meter, as for the performance factor today). The electrical energy is assigned to hot water while the compressor runs with the 3-way valve on hot water, to heating while it runs otherwise, and to standby while it stands still.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -205,6 +208,13 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeString('CurrentDay', '');
         $this->RegisterAttributeFloat('EnergyCounterBase', -1);
         $this->RegisterAttributeFloat('HeatWhToday', 0);
+        //Aufschluesselung der Tageswerte nach Heizen / Warmwasser / Bereitschaft (seit 1.42.0)
+        $this->RegisterAttributeFloat('SplitSpaceHeatWh', 0);
+        $this->RegisterAttributeFloat('SplitDhwHeatWh', 0);
+        $this->RegisterAttributeFloat('SplitSpaceElKwh', 0);
+        $this->RegisterAttributeFloat('SplitDhwElKwh', 0);
+        $this->RegisterAttributeFloat('SplitStandbyElKwh', 0);
+        $this->RegisterAttributeFloat('SplitCounterLast', -1);
         $this->RegisterAttributeInteger('LastIntegration', 0);
 
         $this->RegisterTimer('COPUpdate', 0, 'HEISHA_UpdateCOPCalculation($_IPS[\'TARGET\']);');
@@ -1142,6 +1152,14 @@ class HeishaMon extends IPSModule
         $this->maintainCalculationVariable('Heat_Energy_Today', $this->Translate('Heat energy today'), $kwhPresentation, 202, $energyID > 0);
         $this->maintainCalculationVariable('Power_Energy_Today', $this->Translate('Energy consumption today'), $kwhPresentation, 203, $energyID > 0);
         $this->maintainCalculationVariable('COP_Today', $this->Translate('Performance factor today'), $copPresentation, 204, $energyID > 0);
+        //Aufschluesselung nach Heizen / Warmwasser / Bereitschaft: wohin die Energie geht und wie gut jede Betriebsart arbeitet
+        $this->maintainCalculationVariable('Space_Heat_Today', $this->Translate('Heating: heat energy today'), $kwhPresentation, 205, $energyID > 0);
+        $this->maintainCalculationVariable('DHW_Heat_Today', $this->Translate('Hot water: heat energy today'), $kwhPresentation, 206, $energyID > 0);
+        $this->maintainCalculationVariable('Space_Power_Today', $this->Translate('Heating: energy consumption today'), $kwhPresentation, 207, $energyID > 0);
+        $this->maintainCalculationVariable('DHW_Power_Today', $this->Translate('Hot water: energy consumption today'), $kwhPresentation, 208, $energyID > 0);
+        $this->maintainCalculationVariable('Standby_Power_Today', $this->Translate('Standby: energy consumption today'), $kwhPresentation, 209, $energyID > 0);
+        $this->maintainCalculationVariable('COP_Space_Today', $this->Translate('Performance factor heating today'), $copPresentation, 210, $energyID > 0);
+        $this->maintainCalculationVariable('COP_DHW_Today', $this->Translate('Performance factor hot water today'), $copPresentation, 211, $energyID > 0);
         $this->updateTotalPower();
 
         $this->SetTimerInterval('COPUpdate', $energyID > 0 ? 60000 : 0);
@@ -1181,6 +1199,9 @@ class HeishaMon extends IPSModule
         if ($this->ReadAttributeString('CurrentDay') != $today) {
             $this->WriteAttributeString('CurrentDay', $today);
             $this->WriteAttributeFloat('HeatWhToday', 0);
+            foreach (['SplitSpaceHeatWh', 'SplitDhwHeatWh', 'SplitSpaceElKwh', 'SplitDhwElKwh', 'SplitStandbyElKwh'] as $splitAttribute) {
+                $this->WriteAttributeFloat($splitAttribute, 0);
+            }
             $this->WriteAttributeInteger('LastIntegration', $now);
             $energyID = $this->resolvedEnergyID();
             if ($energyID > 0 && IPS_VariableExists($energyID)) {
@@ -1194,8 +1215,12 @@ class HeishaMon extends IPSModule
         if ($last > 0 && $dt > 0 && $dt <= 600) {
             $heatWh = $this->ReadAttributeFloat('HeatWhToday') + $this->getThermalPower() * $dt / 3600;
             $this->WriteAttributeFloat('HeatWhToday', $heatWh);
+            [$spaceW, $dhwW] = $this->getThermalPowerSplit();
+            $this->WriteAttributeFloat('SplitSpaceHeatWh', $this->ReadAttributeFloat('SplitSpaceHeatWh') + $spaceW * $dt / 3600);
+            $this->WriteAttributeFloat('SplitDhwHeatWh', $this->ReadAttributeFloat('SplitDhwHeatWh') + $dhwW * $dt / 3600);
         }
         $this->WriteAttributeInteger('LastIntegration', $now);
+        $this->splitElectricalEnergy($now);
 
         $this->updateDailyValues();
     }
@@ -1432,7 +1457,14 @@ class HeishaMon extends IPSModule
             'COP_Measured'       => 'Power & COP',
             'Heat_Energy_Today'  => 'Power & COP',
             'Power_Energy_Today' => 'Power & COP',
-            'COP_Today'          => 'Power & COP'
+            'COP_Today'          => 'Power & COP',
+            'Space_Heat_Today'    => 'Power & COP',
+            'DHW_Heat_Today'      => 'Power & COP',
+            'Space_Power_Today'   => 'Power & COP',
+            'DHW_Power_Today'     => 'Power & COP',
+            'Standby_Power_Today' => 'Power & COP',
+            'COP_Space_Today'     => 'Power & COP',
+            'COP_DHW_Today'       => 'Power & COP'
         ];
         foreach ($extraIdents as $ident => $group) {
             $variableID = @$this->GetIDForIdent($ident);
@@ -1524,6 +1556,52 @@ class HeishaMon extends IPSModule
     /**
      * Summe der thermischen Leistung (Heizen + Kuehlen + Warmwasser) in Watt.
      */
+    /**
+     * Thermische Leistung getrennt nach Heizen/Kuehlen und Warmwasser: [Raum-W, Warmwasser-W]. Gleiche Quellenwahl
+     * wie getThermalPower() (Extra-Datenblock, wenn vorhanden).
+     */
+    private function getThermalPowerSplit(): array
+    {
+        $space = $this->sumPowerIdents(['Heat_Power_Production_Extra', 'Cool_Power_Production_Extra'], ['Heat_Power_Production', 'Cool_Power_Production']);
+        $dhw = $this->sumPowerIdents(['DHW_Power_Production_Extra'], ['DHW_Power_Production']);
+        return [$space, $dhw];
+    }
+
+    /**
+     * Teilt den Stromverbrauch seit dem letzten Aufruf (Zuwachs des Energiezaehlers) der Betriebsart zu, die gerade arbeitet:
+     * laeuft der Verdichter und steht das 3-Wege-Ventil auf Warmwasser, geht er ins Warmwasser, sonst ins Heizen (auch Kuehlen);
+     * laeuft der Verdichter nicht, ist es Bereitschaft (Steuerung, Pumpen, Kurbelwannenheizung). Die Zuordnung gilt fuer das
+     * ganze Intervall (60 s) und ist damit an den Umschaltpunkten ungenau, im Tagesmittel aber belastbar.
+     */
+    private function splitElectricalEnergy(int $now)
+    {
+        $energyID = $this->resolvedEnergyID();
+        if ($energyID <= 0 || !IPS_VariableExists($energyID)) {
+            return;
+        }
+        $counter = floatval(GetValue($energyID));
+        $last = $this->ReadAttributeFloat('SplitCounterLast');
+        $this->WriteAttributeFloat('SplitCounterLast', $counter);
+        if ($last < 0 || $counter < $last) {
+            return;
+        }
+        $delta = $counter - $last;
+        if ($delta <= 0 || $delta > 5) {
+            //kein Zuwachs, oder unglaubwuerdig viel auf einmal (Zaehlerwechsel/Luecke): nicht zuordnen
+            return;
+        }
+        $frequency = $this->emsRunValue('Compressor_Freq');
+        [$spaceW, $dhwW] = $this->getThermalPowerSplit();
+        $running = ($frequency !== null && floatval($frequency) > 0) || ($spaceW + $dhwW) > 0;
+        if (!$running) {
+            $attribute = 'SplitStandbyElKwh';
+        } else {
+            $valve = $this->emsRunValue('ThreeWay_Valve_State');
+            $attribute = $valve !== null && intval($valve) === 1 ? 'SplitDhwElKwh' : 'SplitSpaceElKwh';
+        }
+        $this->WriteAttributeFloat($attribute, $this->ReadAttributeFloat($attribute) + $delta);
+    }
+
     private function getThermalPower(): float
     {
         return $this->sumPowerIdents(
@@ -1802,6 +1880,13 @@ class HeishaMon extends IPSModule
         'COP_Measured'       => false,
         'COP_Internal'       => false,
         'COP_Today'          => false,
+        'Space_Heat_Today'    => false,
+        'DHW_Heat_Today'      => false,
+        'Space_Power_Today'   => false,
+        'DHW_Power_Today'     => false,
+        'Standby_Power_Today' => false,
+        'COP_Space_Today'     => false,
+        'COP_DHW_Today'       => false,
         'Operations_Counter' => true,
         'Operations_Hours'   => true,
         //Platinen-Diagnose: Verlauf von WLAN-Qualitaet und MQTT-Neuverbindungen ist die
@@ -1927,6 +2012,27 @@ class HeishaMon extends IPSModule
         $this->SetValue('Heat_Energy_Today', round($heatKwh, 3));
         //Erst ab einer Mindestenergie rechnen, sonst dominiert das Rauschen
         $this->SetValue('COP_Today', $electricalKwh >= 0.05 ? round($heatKwh / $electricalKwh, 2) : 0.0);
+
+        //Aufschluesselung nach Heizen / Warmwasser / Bereitschaft
+        $spaceHeat = $this->ReadAttributeFloat('SplitSpaceHeatWh') / 1000;
+        $dhwHeat = $this->ReadAttributeFloat('SplitDhwHeatWh') / 1000;
+        $spaceEl = $this->ReadAttributeFloat('SplitSpaceElKwh');
+        $dhwEl = $this->ReadAttributeFloat('SplitDhwElKwh');
+        $standbyEl = $this->ReadAttributeFloat('SplitStandbyElKwh');
+        $splitValues = [
+            'Space_Heat_Today'    => round($spaceHeat, 3),
+            'DHW_Heat_Today'      => round($dhwHeat, 3),
+            'Space_Power_Today'   => round($spaceEl, 3),
+            'DHW_Power_Today'     => round($dhwEl, 3),
+            'Standby_Power_Today' => round($standbyEl, 3),
+            'COP_Space_Today'     => $spaceEl >= 0.05 ? round($spaceHeat / $spaceEl, 2) : 0.0,
+            'COP_DHW_Today'       => $dhwEl >= 0.05 ? round($dhwHeat / $dhwEl, 2) : 0.0
+        ];
+        foreach ($splitValues as $ident => $value) {
+            if (@$this->GetIDForIdent($ident) !== false) {
+                $this->SetValue($ident, $value);
+            }
+        }
     }
 
     public function ReceiveData($JSONString)

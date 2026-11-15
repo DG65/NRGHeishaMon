@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Module version](https://img.shields.io/badge/Module_Version-1.41.1-blue)
+![Module version](https://img.shields.io/badge/Module_Version-1.42.0-blue)
 ![Symcon version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -107,6 +107,8 @@ If the meter (automatic or your own) also provides an energy counter, the module
 - **Energy consumption today**: exactly from the counter reading (the base is reset at midnight, and a counter reset is handled).
 - **Heat energy today**: integration of the thermal output in 60-second steps (intermediate values survive a Symcon restart).
 - **Performance factor today**: the ratio of the two. With archiving enabled, this builds up the long-term history.
+
+**Breakdown into heating, hot water and standby** (since version 1.42.0, only with an energy meter): the module also shows where the energy goes and how well each operating mode works: `Heating: heat energy today`, `Hot water: heat energy today`, `Heating: energy consumption today`, `Hot water: energy consumption today`, `Standby: energy consumption today` and the performance factors `Performance factor heating today` and `Performance factor hot water today`. The module assigns the electricity every minute: if the compressor runs with the 3-way valve on hot water, it goes to hot water; if the compressor runs otherwise, to heating (cooling counts as heating); and while the compressor stands still, to standby (controls, pumps, crankcase heater). At the switching points the assignment is imprecise, but over a day it is reliable. The values can be archived like the other monitoring datapoints.
 
 Note: when the backup heater runs, its heat is part of the measured thermal output. Because only the heat pump phase is in the denominator, the COP looks too good during these phases. For rating the compressor alone, that is exactly right.
 
