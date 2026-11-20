@@ -114,6 +114,9 @@ class HeishaMon extends IPSModule
         ],
         '1.43.0' => [
             'New: room-guided shift (optional, off by default, in the "Time schedule" panel). A slow controller adds an offset to the planned heating shift of the schedule: if the rooms are warmer than the target on average over 24 hours, the offset is lowered by 1 K, if they are colder, it is raised by 1 K, at most once per hold time (24 hours by default) and within a limit (3 K by default). The time schedule applies the result with its usual check, so only a few changes a day reach the heat pump.'
+        ],
+        '1.43.1' => [
+            'New: the interface for other modules (EMS, dashboard) now describes itself: HEISHA_GetFunctions() additionally reports contractType, failsafeSec (maximum duration of the hot water boost, 0 without release), failsafeMode ("maxDuration": a one-time request, the consumer does not rewrite) and lastSeenAt (time of the last message of the heat pump). New guide "Connect your own heat pump module to the NRG-Stack" (EIGENES_WAERMEPUMPEN_MODUL.md). The store now shows the release date.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -2520,6 +2523,10 @@ class HeishaMon extends IPSModule
      *            (SetForceDHW), false = Abbruch eines vom Modul gestarteten Laufs; der gelesene Wert ist der Ist-Zustand
      *            der Anlage. controllable = true nur mit Freigabe. optionalRunPowerID/optionalRunPowerMaxID,
      *            powerLimitID und powerLimitActiveID sind 0.
+     *   contractType, failsafeSec, failsafeMode, lastSeenAt  Ab contractVersion 1.19 (Fremdanbindung): contractType 'heatpump';
+     *            failsafeSec = Hoechstdauer des Zusatzlaufs in Sekunden (0 ohne Freigabe), failsafeMode 'maxDuration' (Ein-Wunsch,
+     *            das Modul beendet selbst, der Konsument schreibt nicht nach); lastSeenAt = Unix-Zeit der letzten Nachricht der
+     *            Anlage (0 = nie, bleibt bei Ausfall stehen).
      *   contractVersion 'Major.Minor' des Vertrags (Suite-Konvention, SUITE.md im EMS-Repo).
      *            Major nur bei Bruch; Kompatibilitaet nur innerhalb derselben Major. Fehlt = '1.0'.
      */
@@ -2586,9 +2593,33 @@ class HeishaMon extends IPSModule
                 'powerLimitID'         => 0,
                 'powerLimitActiveID'   => 0,
                 'controllable'         => $this->idForIdent('Optional_Run') > 0,
-                'contractVersion'      => '1.18'
+                //Fremdanbindung (heatpump-Vertrag 1.19): Selbstbeschreibung und Rueckfall. failsafeSec ist bei HeishaMon die Hoechstdauer,
+                //nach der das Modul einen selbst gestarteten Zusatzlauf beendet (nur mit Freigabe, sonst 0); es ist ein Ein-Wunsch,
+                //der Konsument schreibt nicht nach ('maxDuration', kein Totmann)
+                'contractType'         => 'heatpump',
+                'failsafeSec'          => $this->idForIdent('Optional_Run') > 0 ? max(0, (int) $this->ReadPropertyInteger('EmsRunMaxMinutes')) * 60 : 0,
+                'failsafeMode'         => 'maxDuration',
+                'lastSeenAt'           => $this->lastSeenAt(),
+                'contractVersion'      => '1.19'
             ]
         ];
+    }
+
+    /**
+     * Unix-Zeit der letzten Nachricht der Anlage (0 = nie): der juengste Aktualisierungszeitpunkt der Datenpunkte, die die
+     * Platine in jedem Sendezyklus veroeffentlicht. Fuer den Frische-Check der Konsumenten (aelter als 10 Minuten = unbekannt);
+     * bleibt bei einem Ausfall stehen, statt auf 0 zu fallen.
+     */
+    private function lastSeenAt(): int
+    {
+        $latest = 0;
+        foreach (['Outside_Temp', 'Main_Outlet_Temp', 'Main_Inlet_Temp', 'Operating_Mode_State', 'Heatpump_State', 'Stats_Uptime'] as $ident) {
+            $variableID = @$this->GetIDForIdent($ident);
+            if ($variableID !== false) {
+                $latest = max($latest, (int) (IPS_GetVariable($variableID)['VariableUpdated'] ?? 0));
+            }
+        }
+        return $latest;
     }
 
     /**

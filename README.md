@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-1.43.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-1.43.1-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -180,6 +180,8 @@ Abgrenzung im NRG-Stack (mit EMS abgestimmt): Platinen-Regelwerke bilden die aut
 
 Das Modul führt eine Variable **Elektrische Leistung (gesamt)** (W). Sie enthält den gemessenen Wert des externen Stromzählers, sofern konfiguriert — andernfalls die Summe der HeishaMon-Schätzwerte (Heizen + Kühlen + Warmwasser). Damit gibt es unabhängig vom Messaufbau immer eine einzelne, verlässliche Leistungsvariable, z. B. für Visualisierungen, ein Energiemanagement oder eigene Automationen.
 
+Wer ein **eigenes Wärmepumpen-Modul** an den NRG-Stack anbinden will, findet die Anleitung in [EIGENES_WAERMEPUMPEN_MODUL.md](EIGENES_WAERMEPUMPEN_MODUL.md) (auch auf [Englisch](EIGENES_WAERMEPUMPEN_MODUL.en.md)).
+
 Andere Module können die Wärmepumpe automatisch einbinden, ohne dass der Nutzer Variablen von Hand zuweisen muss. `HEISHA_GetFunctions()` implementiert dazu den gemeinsamen, herstellerneutralen `heatpump`-Vertragstyp des NRG-Stack (z. B. auch von WPHub für die Panasonic-Comfort-Cloud genutzt) — Konsumenten wie NRGDashboard rendern generisch anhand der tatsächlich vorhandenen Felder, unabhängig davon, welches Wärmepumpen-Modul sie liefert:
 
 ```php
@@ -234,7 +236,9 @@ $functions = HEISHA_GetFunctions(12345);
 //     'outsideTempID' => 34606,            // Aussenfuehler der WP in °C
 //     'compressorStartsID' => 34607,       // kumulierte Verdichter-Starts
 //     'operationsHoursID' => 34608,        // kumulierte Betriebsstunden
-//     'contractVersion' => '1.10'  // Vertragsversion (NRG-Stack-Konvention, siehe SUITE.md)
+//     // Ab contractVersion 1.19 (Fremdanbindung): 'contractType' => 'heatpump', 'failsafeSec' (Hoechstdauer des
+//     // Zusatzlaufs in s, 0 ohne Freigabe), 'failsafeMode' => 'maxDuration', 'lastSeenAt' (Unix-Zeit der letzten Nachricht)
+//     'contractVersion' => '1.19'  // Vertragsversion (NRG-Stack-Konvention, siehe SUITE.md)
 //   ]
 // ]
 ```

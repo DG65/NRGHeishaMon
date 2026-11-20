@@ -677,7 +677,8 @@
             "Waiting after the last change": "Wartet nach der letzten Änderung",
             "The offset limit is reached": "Die Grenze des Versatzes ist erreicht",
             "The rooms are within the target band": "Die Räume liegen im Zielband",
-            "Offset changed": "Versatz geändert"
+            "Offset changed": "Versatz geändert",
+            "New: the interface for other modules (EMS, dashboard) now describes itself: HEISHA_GetFunctions() additionally reports contractType, failsafeSec (maximum duration of the hot water boost, 0 without release), failsafeMode (\"maxDuration\": a one-time request, the consumer does not rewrite) and lastSeenAt (time of the last message of the heat pump). New guide \"Connect your own heat pump module to the NRG-Stack\" (EIGENES_WAERMEPUMPEN_MODUL.md). The store now shows the release date.": "Neu: Die Schnittstelle für andere Module (EMS, Dashboard) beschreibt sich jetzt selbst: HEISHA_GetFunctions() meldet zusätzlich contractType, failsafeSec (Höchstdauer des Warmwasser-Zusatzlaufs, 0 ohne Freigabe), failsafeMode („maxDuration“: ein Ein-Wunsch, der Konsument schreibt nicht nach) und lastSeenAt (Zeitpunkt der letzten Nachricht der Wärmepumpe). Neue Anleitung „Eigenes Wärmepumpen-Modul an den NRG-Stack anbinden“ (EIGENES_WAERMEPUMPEN_MODUL.md). Der Store zeigt jetzt das Veröffentlichungsdatum."
         }
     }
 }

@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Module version](https://img.shields.io/badge/Module_Version-1.43.0-blue)
+![Module version](https://img.shields.io/badge/Module_Version-1.43.1-blue)
 ![Symcon version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -180,6 +180,8 @@ Delimitation within the NRG-Stack (agreed with EMS): board rulesets form the aut
 
 The module maintains a variable **Electrical power (total)** (W). It holds the measured value of the external electricity meter if one is configured, otherwise the sum of the HeishaMon estimates (heating + cooling + DHW). That way there is always a single, reliable power variable regardless of the measuring setup, for example for visualizations, an energy management system or your own automations.
 
+If you want to connect your **own heat pump module** to the NRG-Stack, you will find the guide in [EIGENES_WAERMEPUMPEN_MODUL.en.md](EIGENES_WAERMEPUMPEN_MODUL.en.md) (also in [German](EIGENES_WAERMEPUMPEN_MODUL.md)).
+
 Other modules can integrate the heat pump automatically, without the user having to assign variables by hand. `HEISHA_GetFunctions()` implements the shared, manufacturer-neutral `heatpump` contract type of the NRG-Stack (also used by WPHub for the Panasonic Comfort Cloud, for example). Consumers such as the NRGDashboard render generically based on the fields that are actually present, regardless of which heat pump module delivers them. The listing shows the main fields with the contract version in which each appeared; the complete current contract (version 1.16) is kept in the NRG-Stack manifest:
 
 ```php
@@ -232,7 +234,9 @@ $functions = HEISHA_GetFunctions(12345);
 //     'outsideTempID' => 34606,            // outdoor sensor of the heat pump in °C
 //     'compressorStartsID' => 34607,       // cumulative compressor starts
 //     'operationsHoursID' => 34608,        // cumulative operating hours
-//     'contractVersion' => '1.16'          // contract version (NRG-Stack convention, see SUITE.md)
+//     // from 1.19 (third-party connection): 'contractType' => 'heatpump', 'failsafeSec' (maximum duration of the
+//     // additional run in s, 0 without release), 'failsafeMode' => 'maxDuration', 'lastSeenAt' (Unix time of the last message)
+//     'contractVersion' => '1.19'          // contract version (NRG-Stack convention, see SUITE.md)
 //   ]
 // ]
 ```
