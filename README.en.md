@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Module version](https://img.shields.io/badge/Module_Version-1.43.1-blue)
+![Module version](https://img.shields.io/badge/Module_Version-1.44.0-blue)
 ![Symcon version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -29,7 +29,7 @@ You use this module **at your own risk**. It sends commands to the HeishaMon and
 ## Requirements
 
 - Symcon 9.0 or later
-- HeishaMon with MQTT enabled
+- HeishaMon with MQTT enabled. The current HeishaMon firmware is recommended ([download and update](https://github.com/heishamon/HeishaMon/releases/latest), at least 4.4.1 for all functions of this version); older firmware keeps working with fewer functions
 - An MQTT Server (or MQTT Client) set up in Symcon that the HeishaMon is connected to
 
 ## Installation
@@ -60,6 +60,10 @@ Note: a library installed by URL is not switched to the store version automatica
 In the instance configuration the **Datapoints** table lists all known HeishaMon topics. The **Received** column shows which topics your installation actually sends. Use the **Active** column to deselect individual datapoints. Their variables are **hidden**; object ID, value updates and archive data are kept, and reactivating a datapoint simply shows the variable again. Datapoints whose variable does not exist yet are not created while they are deselected.
 
 Rows can be **reordered by dragging**. The variables below the instance and the links in the link structure follow this order once you apply the changes. The **Reset order and selection** button restores the default.
+
+**New data points of firmware 4.4:** Firmware 4.3/4.4 reports more than 50 additional values (TOP144-TOP198). Only ten of them are created by the module on its own: actual quiet and powerful mode, activity of zone 1 and 2, heating water target including buffer delta, rated capacity and type of the heat pump, defrost signal and the maximum times for room heating and DHW heat-up. The other 45 (read-back of the installer menus, SG ready values, sensor offsets, bivalent, extra pump) are **deselected** in the list; select them there if you need them. Whether your unit delivers a value depends on the model.
+
+**Note for the board (firmware 4.4.0 and newer):** The topic group **Installer settings** is switched off by default. It contains twelve values that this module knows (`Max_Pump_Duty`, `Pump_Flowrate_Mode`, `Liquid_Type`, `Anti_Freeze_Mode`, `Buffer_Installed`, `DHW_Installed`, `Alt_External_Sensor`, `Z1_Sensor_Settings`, `Z2_Sensor_Settings`, `Heating_Control`, `Quiet_Mode_Priority`, `DHW_Sensor_Selection`). While the group stays off, these variables stand still on their last value. Switch it on in the web interface of the board under *Settings -> Advanced -> Topic groups* and save. The module shows a hint in the form if a firmware from 4.4.0 is reported and these variables have not been updated for hours. Download the firmware: [HeishaMon releases](https://github.com/heishamon/HeishaMon/releases/latest).
 
 ## 1-Wire sensors
 
@@ -274,10 +278,12 @@ Note: the HeishaMon does not report who changed a setpoint last (MQTT has no ori
 
 ## Extra commands (optional)
 
-In the **Extra commands** area you can enable two write-only functions as switchable variables. The heat pump does **not report their state back**; the display only reflects the last command sent:
+In the **Extra commands** area you can enable additional functions as variables. SmartGrid mode is a write-only command: the heat pump does **not report its state back**, the display only reflects the last command sent. The state of the relays, however, is read back from the board with firmware 4.3 or newer:
 
 - **SmartGrid mode**: digitally replicates the four operating modes that are otherwise only switched through physical dry contacts at the outdoor unit (native "SG ready", service item 16 in the heat pump's operation menu). It only takes effect if the heat pump's own service setting **Optional PCB** is set to **Yes** (a different menu item than "SG ready" itself). Otherwise nothing happens, without an error message.
-- **Relay 1/2**: the two relays permanently installed on the *large* HeishaMon board (`gpio/relay/one`/`two`), switching up to 230 V/5 A, for example for an external thermostat contact or a pump. Only present if the large board is actually installed; on the small board these variables switch into the void.
+- **Relay 1/2**: the two relays permanently installed on the *large* HeishaMon board (`gpio/relay/one`/`two`), switching up to 230 V/5 A, for example for an external thermostat contact or a pump. Only present if the large board is actually installed; on the small board these variables switch into the void. Since version 1.44.0 the module reads the state back from `gpio/relay/one/state` and `two/state` (firmware 4.3 or newer); if a rule on the board or a Modbus client switches a relay, the variable follows.
+- **Extra GPIOs 1-5** (since version 1.44.0, own option, display only): state of the five freely configurable GPIOs of the large board (`gpio/extra/N/state`), whether they are set as input or output.
+- **Reset the fault code** (since version 1.44.0): the button or `HEISHA_ResetFault($id)` sends `SetReset`, like the "Reset" key on the CZ-TAW1 remote or the indoor unit. It clears faults that switching off and on does not. Only with the extra commands enabled.
 
 ## Commands by script
 

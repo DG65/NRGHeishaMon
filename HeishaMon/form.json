@@ -65,6 +65,10 @@
                 {
                     "type": "Label",
                     "caption": "🤝 Integration: Other NRG-Stack modules (energy management, system schematic, heat pump monitor) find this heat pump automatically via HEISHA_GetFunctions - no manual variable assignment needed. Scripting commands (including reading and setting heating curves and operating functions) and the version history are documented in the README and CHANGELOG of the module; questions and feedback are welcome in the module thread (link in the forum hint below)."
+                },
+                {
+                    "type": "Label",
+                    "caption": "🔧 Board firmware: new functions of this module need a current HeishaMon firmware (recommended: 4.4.1 or newer, older versions keep working with fewer functions). Latest release and update: https://github.com/heishamon/HeishaMon/releases/latest - with firmware 4.4 the topic group \"Installer settings\" is switched off by default, switch it on in the web interface of the board (Settings > Advanced > Topic groups)."
                 }
             ]
         },
@@ -1051,7 +1055,7 @@
             "items": [
                 {
                     "type": "Label",
-                    "caption": "These are write-only commands - the heat pump does not report their state back, so the displayed value only reflects the last command sent, not a confirmation."
+                    "caption": "SmartGrid mode is a write-only command - the heat pump does not report its state back, so the displayed value only reflects the last command sent. The state of the relays is read back from the board (HeishaMon firmware 4.3 or newer)."
                 },
                 {
                     "type": "CheckBox",
@@ -1084,6 +1088,16 @@
                 {
                     "type": "Label",
                     "caption": "The two relays on the large HeishaMon board switch up to 230V/5A - typically used for an external thermostat contact, a pump, or similar low-power devices."
+                },
+                {
+                    "type": "CheckBox",
+                    "name": "EnableExtraGpio",
+                    "caption": "🆕 Show the state of the five extra GPIOs (large board, firmware 4.3 or newer, display only)"
+                },
+                {
+                    "type": "Button",
+                    "caption": "🆕 Reset the fault code of the heat pump",
+                    "onClick": "HEISHA_ResetFault($id);"
                 }
             ]
         },

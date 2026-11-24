@@ -15,6 +15,7 @@ declare(strict_types=1);
  *   on/off  => Beschriftungen für bool (Standard: On/Off)
  *   set     => HeishaMon-Befehl (commands/SetXxx) - Variable wird schaltbar
  *   min/max/step => Slider-Grenzen für schaltbare numerische Werte
+ *   default => false: die Variable entsteht nicht von selbst, nur wenn der Nutzer sie in der Datenpunkt-Liste wählt
  */
 class HeishaMonTopics
 {
@@ -25,7 +26,7 @@ class HeishaMonTopics
             'main/Heatpump_State'                  => ['cap' => 'Heatpump state', 'kind' => 'bool', 'set' => 'SetHeatpump'],
             'main/Pump_Flow'                       => ['cap' => 'Pump flow', 'kind' => 'float', 'suffix' => ' l/min', 'digits' => 2],
             'main/Force_DHW_State'                 => ['cap' => 'Force DHW', 'kind' => 'bool', 'set' => 'SetForceDHW'],
-            'main/Quiet_Mode_Schedule'             => ['cap' => 'Quiet mode schedule', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive'],
+            'main/Quiet_Mode_Schedule'             => ['cap' => 'Quiet mode schedule', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive', 'set' => 'SetQuietModeSchedule'],
             'main/Operating_Mode_State'            => ['cap' => 'Operating mode', 'kind' => 'enum', 'set' => 'SetOperationMode', 'options' => [
                 0 => 'Heat only', 1 => 'Cool only', 2 => 'Auto (Heat)', 3 => 'DHW only', 4 => 'Heat + DHW',
                 5 => 'Cool + DHW', 6 => 'Auto (Heat) + DHW', 7 => 'Auto (Cool)', 8 => 'Auto (Cool) + DHW']],
@@ -97,8 +98,8 @@ class HeishaMonTopics
             'main/Compressor_Current'              => ['cap' => 'Compressor current', 'kind' => 'float', 'suffix' => ' A', 'digits' => 2],
             'main/Force_Heater_State'              => ['cap' => 'Force heater', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive'],
             'main/Sterilization_State'             => ['cap' => 'Sterilization', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive', 'set' => 'SetForceSterilization'],
-            'main/Sterilization_Temp'              => ['cap' => 'Sterilization temperature', 'kind' => 'int', 'suffix' => ' °C'],
-            'main/Sterilization_Max_Time'          => ['cap' => 'Sterilization maximum time', 'kind' => 'int', 'suffix' => ' min'],
+            'main/Sterilization_Temp'              => ['cap' => 'Sterilization temperature', 'kind' => 'int', 'suffix' => ' °C', 'set' => 'SetSterilizationTemp', 'min' => 55, 'max' => 75, 'step' => 1],
+            'main/Sterilization_Max_Time'          => ['cap' => 'Sterilization maximum time', 'kind' => 'int', 'suffix' => ' min', 'set' => 'SetSterilizationMaxTime', 'min' => 5, 'max' => 60, 'step' => 5],
             'main/Z1_Cool_Curve_Target_High_Temp'  => ['cap' => 'Zone 1 cool curve target high temperature', 'kind' => 'int', 'suffix' => ' °C'],
             'main/Z1_Cool_Curve_Target_Low_Temp'   => ['cap' => 'Zone 1 cool curve target low temperature', 'kind' => 'int', 'suffix' => ' °C'],
             'main/Z1_Cool_Curve_Outside_High_Temp' => ['cap' => 'Zone 1 cool curve outside high temperature', 'kind' => 'int', 'suffix' => ' °C'],
@@ -106,8 +107,8 @@ class HeishaMonTopics
             'main/Heating_Mode'                    => ['cap' => 'Heating mode', 'kind' => 'enum', 'options' => [0 => 'Compensation curve', 1 => 'Direct']],
             'main/Heating_Off_Outdoor_Temp'        => ['cap' => 'Heating off outdoor temperature', 'kind' => 'int', 'suffix' => ' °C', 'set' => 'SetHeatingOffOutdoorTemp', 'min' => 5, 'max' => 35, 'step' => 1],
             'main/Heater_On_Outdoor_Temp'          => ['cap' => 'Heater on outdoor temperature', 'kind' => 'int', 'suffix' => ' °C', 'set' => 'SetHeaterOnOutdoorTemp', 'min' => -15, 'max' => 20, 'step' => 1],
-            'main/Heat_To_Cool_Temp'               => ['cap' => 'Heat to cool temperature', 'kind' => 'int', 'suffix' => ' °C'],
-            'main/Cool_To_Heat_Temp'               => ['cap' => 'Cool to heat temperature', 'kind' => 'int', 'suffix' => ' °C'],
+            'main/Heat_To_Cool_Temp'               => ['cap' => 'Heat to cool temperature', 'kind' => 'int', 'suffix' => ' °C', 'set' => 'SetHeatToCoolTemp', 'min' => 5, 'max' => 35, 'step' => 1],
+            'main/Cool_To_Heat_Temp'               => ['cap' => 'Cool to heat temperature', 'kind' => 'int', 'suffix' => ' °C', 'set' => 'SetCoolToHeatTemp', 'min' => 5, 'max' => 35, 'step' => 1],
             'main/Cooling_Mode'                    => ['cap' => 'Cooling mode', 'kind' => 'enum', 'options' => [0 => 'Compensation curve', 1 => 'Direct']],
             'main/Z2_Heat_Curve_Target_High_Temp'  => ['cap' => 'Zone 2 heat curve target high temperature', 'kind' => 'int', 'suffix' => ' °C'],
             'main/Z2_Heat_Curve_Target_Low_Temp'   => ['cap' => 'Zone 2 heat curve target low temperature', 'kind' => 'int', 'suffix' => ' °C'],
@@ -181,6 +182,65 @@ class HeishaMonTopics
             'main/Expansion_Valve'                 => ['cap' => 'Expansion valve', 'kind' => 'int'],
             'main/DHW_Sensor_Selection'            => ['cap' => 'DHW sensor selection', 'kind' => 'enum', 'set' => 'SetDHWSensorSelection', 'options' => [
                 0 => 'Top', 1 => 'Center']],
+
+            // TOP144 - TOP198 (Firmware 4.3/4.4): Rueckmeldungen der Installateur-Menues und tatsaechliche Zustaende.
+            // 'default' => false: neue Variablen entstehen nur auf Wunsch (Datenpunkt-Liste), damit ein Firmware-Update
+            // nicht Dutzende neuer Variablen erzeugt. Verfuegbarkeit haengt von Modell und Konfiguration der Waermepumpe ab.
+            'main/Dry_Concrete_State'              => ['cap' => 'Concrete drying', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive', 'default' => false],
+            'main/DHW_Capacity_Mode'               => ['cap' => 'DHW capacity mode', 'kind' => 'enum', 'options' => [0 => 'Standard', 1 => 'Variable'], 'default' => false],
+            'main/Zone_Configuration'              => ['cap' => 'Zone configuration', 'kind' => 'enum', 'options' => [21 => 'One zone, room (Z1)', 25 => 'One zone, pool (Z1)', 22 => 'Two zones, room (Z2)', 38 => 'Two zones, pool (Z2)'], 'default' => false],
+            'main/Internal_Heater_Capacity'        => ['cap' => 'Internal heater capacity (-1 = unavailable)', 'kind' => 'int', 'suffix' => ' kW', 'default' => false],
+            'main/DHW_Heater_Type'                 => ['cap' => 'DHW heater type', 'kind' => 'enum', 'options' => [0 => 'Internal', 1 => 'External'], 'default' => false],
+            'main/SG_Ready_Control'                => ['cap' => 'SG ready control', 'kind' => 'bool', 'on' => 'Enabled', 'off' => 'Disabled', 'default' => false],
+            'main/Demand_Control'                  => ['cap' => 'Demand control', 'kind' => 'bool', 'on' => 'Enabled', 'off' => 'Disabled', 'default' => false],
+            'main/DHW_Defrost'                     => ['cap' => 'DHW defrost option', 'kind' => 'bool', 'on' => 'Yes', 'off' => 'No', 'default' => false],
+            'main/Dry_Concrete_Target_Temp'        => ['cap' => 'Concrete drying target temperature', 'kind' => 'float', 'suffix' => ' °C', 'digits' => 1, 'default' => false],
+            'main/Pool_Delta'                      => ['cap' => 'Pool temperature delta', 'kind' => 'float', 'suffix' => ' K', 'digits' => 1, 'default' => false],
+            'main/SG_Ready_1_Heat_Capacity'        => ['cap' => 'SG ready 1: heating capacity', 'kind' => 'int', 'suffix' => ' %', 'default' => false],
+            'main/SG_Ready_1_DHW_Capacity'         => ['cap' => 'SG ready 1: DHW capacity', 'kind' => 'int', 'suffix' => ' %', 'default' => false],
+            'main/SG_Ready_2_Heat_Capacity'        => ['cap' => 'SG ready 2: heating capacity', 'kind' => 'int', 'suffix' => ' %', 'default' => false],
+            'main/SG_Ready_2_DHW_Capacity'         => ['cap' => 'SG ready 2: DHW capacity', 'kind' => 'int', 'suffix' => ' %', 'default' => false],
+            'main/Room_Operation_Max_Time'         => ['cap' => 'Maximum room heating time (alternating with DHW)', 'kind' => 'int', 'suffix' => ' min', 'set' => 'SetRoomOperationMaxTime', 'min' => 30, 'max' => 7620, 'step' => 30],
+            'main/DHW_Heatup_Max_Time'             => ['cap' => 'Maximum DHW heat-up time', 'kind' => 'int', 'suffix' => ' min', 'set' => 'SetDHWHeatupMaxTime', 'min' => 1, 'max' => 254, 'step' => 1],
+            'main/Quiet_Mode_Actual_State'         => ['cap' => 'Quiet mode (actual)', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive'],
+            'main/Powerful_Mode_Actual_State'      => ['cap' => 'Powerful mode (actual)', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive'],
+            'main/Heat_Cool_Switch_State'          => ['cap' => 'Heat/cool switch (actual)', 'kind' => 'enum', 'options' => [0 => 'Heating', 1 => 'Cooling'], 'default' => false],
+            'main/External_Switch_State'           => ['cap' => 'External switch (actual)', 'kind' => 'enum', 'options' => [0 => 'Closed', 1 => 'Open'], 'default' => false],
+            'main/Bivalent_Boiler_Contact_State'   => ['cap' => 'Bivalent boiler contact (actual)', 'kind' => 'bool', 'on' => 'On', 'off' => 'Off', 'default' => false],
+            'main/Z2_Active'                       => ['cap' => 'Zone 2 active (actual)', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive'],
+            'main/Z1_Active'                       => ['cap' => 'Zone 1 active (actual)', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive'],
+            'main/Backup_Heater_Enable'            => ['cap' => 'Backup heater (custom menu)', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive', 'default' => false],
+            'main/Cooling_Enable'                  => ['cap' => 'Cooling (custom menu)', 'kind' => 'bool', 'on' => 'Active', 'off' => 'Inactive', 'default' => false],
+            'main/Heat_Request_Temp_With_Buffer'   => ['cap' => 'Heating water target incl. buffer delta', 'kind' => 'float', 'suffix' => ' °C', 'digits' => 1],
+            'main/Static_Pressure'                 => ['cap' => 'Static pressure option', 'kind' => 'bool', 'on' => 'Enabled', 'off' => 'Disabled', 'default' => false],
+            'main/Heating_On_Outdoor_Temp'         => ['cap' => 'Outdoor temperature for heating on', 'kind' => 'int', 'suffix' => ' °C', 'default' => false],
+            'main/Heating_On_Delay'                => ['cap' => 'Heating on delay', 'kind' => 'int', 'suffix' => ' min', 'default' => false],
+            'main/DHW_Booster_Delay'               => ['cap' => 'External DHW booster switch-on delay', 'kind' => 'int', 'suffix' => ' min', 'default' => false],
+            'main/Efficiency_Stage1_Time'          => ['cap' => 'Efficiency stage 1 duration', 'kind' => 'int', 'suffix' => ' min', 'default' => false],
+            'main/Efficiency_Stage2_Time'          => ['cap' => 'Efficiency stage 2 duration', 'kind' => 'int', 'suffix' => ' min', 'default' => false],
+            'main/Efficiency_Stage3_Time'          => ['cap' => 'Efficiency stage 3 duration', 'kind' => 'int', 'suffix' => ' min', 'default' => false],
+            'main/Sensor_Offset_Remote_Th1'        => ['cap' => 'Sensor offset: remote Th1', 'kind' => 'float', 'suffix' => ' K', 'digits' => 1, 'default' => false],
+            'main/Sensor_Offset_Outdoor'           => ['cap' => 'Sensor offset: outdoor', 'kind' => 'float', 'suffix' => ' K', 'digits' => 1, 'default' => false],
+            'main/Anti_Stick_Mode'                 => ['cap' => 'Anti-stick mode (actuator exercise)', 'kind' => 'bool', 'on' => 'Enabled', 'off' => 'Disabled', 'default' => false],
+            'main/Bivalent_Operating_Mode'         => ['cap' => 'Bivalent operating mode', 'kind' => 'enum', 'options' => [0 => 'Auto', 1 => 'SG ready', 2 => 'Intelligent'], 'default' => false],
+            'main/Bivalent_External_Pump'          => ['cap' => 'Bivalent external pump', 'kind' => 'bool', 'on' => 'On', 'off' => 'Off', 'default' => false],
+            'main/Extra_Pump_Use'                  => ['cap' => 'Extra pump use', 'kind' => 'enum', 'options' => [0 => 'Not used', 1 => 'Heating', 2 => 'DHW'], 'default' => false],
+            'main/Extra_Pump_Mode'                 => ['cap' => 'Extra pump mode', 'kind' => 'enum', 'options' => [0 => 'Comfort', 1 => 'Efficiency'], 'default' => false],
+            'main/SG_Ready_1_DHW_Power'            => ['cap' => 'SG ready 1: DHW power consumption', 'kind' => 'float', 'suffix' => ' kW', 'digits' => 1, 'default' => false],
+            'main/SG_Ready_1_Heat_Power'           => ['cap' => 'SG ready 1: heating power consumption', 'kind' => 'float', 'suffix' => ' kW', 'digits' => 1, 'default' => false],
+            'main/SG_Ready_1_Cool_Power'           => ['cap' => 'SG ready 1: cooling power consumption', 'kind' => 'float', 'suffix' => ' kW', 'digits' => 1, 'default' => false],
+            'main/SG_Ready_2_DHW_Power'            => ['cap' => 'SG ready 2: DHW power consumption', 'kind' => 'float', 'suffix' => ' kW', 'digits' => 1, 'default' => false],
+            'main/SG_Ready_2_Heat_Power'           => ['cap' => 'SG ready 2: heating power consumption', 'kind' => 'float', 'suffix' => ' kW', 'digits' => 1, 'default' => false],
+            'main/SG_Ready_2_Cool_Power'           => ['cap' => 'SG ready 2: cooling power consumption', 'kind' => 'float', 'suffix' => ' kW', 'digits' => 1, 'default' => false],
+            'main/SG_Ready_Stop_Power'             => ['cap' => 'SG ready: consumption limit while stopped', 'kind' => 'float', 'suffix' => ' kW', 'digits' => 1, 'default' => false],
+            'main/SG_Ready_1_Cool_Capacity'        => ['cap' => 'SG ready 1: cooling offset', 'kind' => 'float', 'suffix' => ' K', 'digits' => 1, 'default' => false],
+            'main/SG_Ready_2_Cool_Capacity'        => ['cap' => 'SG ready 2: cooling offset', 'kind' => 'float', 'suffix' => ' K', 'digits' => 1, 'default' => false],
+            'main/Sensor_Offset_Return'            => ['cap' => 'Sensor offset: return', 'kind' => 'float', 'suffix' => ' K', 'digits' => 1, 'default' => false],
+            'main/Defrost_Signal'                  => ['cap' => 'Defrost signal (installer menu)', 'kind' => 'bool', 'on' => 'Yes', 'off' => 'No'],
+            'main/Sensor_Offset_DHW_Tank'          => ['cap' => 'Sensor offset: DHW tank', 'kind' => 'float', 'suffix' => ' K', 'digits' => 1, 'default' => false],
+            'main/Sensor_Offset_Flow'              => ['cap' => 'Sensor offset: flow', 'kind' => 'float', 'suffix' => ' K', 'digits' => 1, 'default' => false],
+            'main/Heat_Pump_Capacity'              => ['cap' => 'Rated heating capacity', 'kind' => 'float', 'suffix' => ' kW', 'digits' => 1],
+            'main/Heat_Pump_Type'                  => ['cap' => 'Heat pump type', 'kind' => 'enum', 'options' => [0 => 'Standard', 1 => 'T-CAP']],
 
             // OPT0 - OPT6 (Optional PCB Emulation)
             'optional/Z1_Water_Pump'               => ['cap' => 'Optional PCB: Zone 1 water pump', 'kind' => 'bool', 'on' => 'On', 'off' => 'Off'],
@@ -274,7 +334,8 @@ class HeishaMonTopics
                 'main/Holiday_Mode_State', 'main/Main_Schedule_State', 'main/Defrosting_State',
                 'main/Error', 'main/Outside_Temp', 'main/Operations_Hours', 'main/Operations_Counter',
                 'main/ThreeWay_Valve_State', 'main/ThreeWay_Valve_State2', 'main/TwoWay_Valve_State',
-                'main/Zones_State'
+                'main/Zones_State', 'main/Quiet_Mode_Actual_State', 'main/Powerful_Mode_Actual_State',
+                'main/Z1_Active', 'main/Z2_Active', 'main/Heat_Cool_Switch_State', 'main/External_Switch_State'
             ],
             'Heating' => [
                 'main/Main_Inlet_Temp', 'main/Main_Outlet_Temp', 'main/Main_Target_Temp', 'main/Heat_Delta',
@@ -286,7 +347,9 @@ class HeishaMonTopics
                 'main/Z1_Temp', 'main/Z2_Temp', 'main/Room_Thermostat_Temp', 'main/Second_Room_Thermostat_Temp',
                 'main/Heating_Mode', 'main/Heating_Off_Outdoor_Temp', 'main/Heat_To_Cool_Temp', 'main/Heating_Control',
                 'main/Z1_Pump_State', 'main/Z2_Pump_State', 'main/Z1_Valve_PID', 'main/Z2_Valve_PID',
-                'main/Room_Holiday_Shift_Temp', 'main/Room_Heater_State', 'main/Room_Heater_Operations_Hours'
+                'main/Room_Holiday_Shift_Temp', 'main/Room_Heater_State', 'main/Room_Heater_Operations_Hours',
+                'main/Heat_Request_Temp_With_Buffer', 'main/Heating_On_Outdoor_Temp', 'main/Heating_On_Delay',
+                'main/Room_Operation_Max_Time'
             ],
             'Cooling' => [
                 'main/Cool_Delta', 'main/Z1_Cool_Request_Temp', 'main/Z1_Cool_Curve_Target_High_Temp',
@@ -300,7 +363,9 @@ class HeishaMonTopics
                 'main/Force_DHW_State', 'main/DHW_Target_Temp', 'main/DHW_Temp', 'main/DHW_Heat_Delta',
                 'main/DHW_Holiday_Shift_Temp', 'main/DHW_Heater_State', 'main/DHW_Installed',
                 'main/DHW_Heater_Operations_Hours', 'main/Sterilization_State', 'main/Sterilization_Temp',
-                'main/Sterilization_Max_Time', 'main/Smart_DHW', 'main/DHW_Sensor_Selection'
+                'main/Sterilization_Max_Time', 'main/Smart_DHW', 'main/DHW_Sensor_Selection',
+                'main/DHW_Heatup_Max_Time', 'main/DHW_Defrost', 'main/DHW_Capacity_Mode', 'main/DHW_Heater_Type',
+                'main/DHW_Booster_Delay'
             ],
             'Power & COP' => [
                 'main/Heat_Power_Production', 'main/Heat_Power_Consumption', 'main/Cool_Power_Production',
@@ -320,9 +385,30 @@ class HeishaMonTopics
                 'main/Bivalent_Advanced_DHW', 'main/Bivalent_Advanced_Start_Temp', 'main/Bivalent_Advanced_Stop_Temp',
                 'main/Bivalent_Advanced_Start_Delay', 'main/Bivalent_Advanced_Stop_Delay',
                 'main/Bivalent_Advanced_DHW_Delay', 'main/Heater_Delay_Time', 'main/Heater_Start_Delta',
-                'main/Heater_Stop_Delta', 'main/Heater_On_Outdoor_Temp'
+                'main/Heater_Stop_Delta', 'main/Heater_On_Outdoor_Temp',
+                'main/Zone_Configuration', 'main/Internal_Heater_Capacity', 'main/Backup_Heater_Enable',
+                'main/Cooling_Enable', 'main/Static_Pressure', 'main/Anti_Stick_Mode', 'main/Defrost_Signal',
+                'main/Extra_Pump_Use', 'main/Extra_Pump_Mode', 'main/Bivalent_Operating_Mode',
+                'main/Bivalent_External_Pump', 'main/Bivalent_Boiler_Contact_State', 'main/Dry_Concrete_State',
+                'main/Dry_Concrete_Target_Temp', 'main/Pool_Delta', 'main/Demand_Control', 'main/SG_Ready_Control',
+                'main/SG_Ready_1_Heat_Capacity', 'main/SG_Ready_1_DHW_Capacity', 'main/SG_Ready_2_Heat_Capacity',
+                'main/SG_Ready_2_DHW_Capacity', 'main/SG_Ready_1_DHW_Power', 'main/SG_Ready_1_Heat_Power',
+                'main/SG_Ready_1_Cool_Power', 'main/SG_Ready_2_DHW_Power', 'main/SG_Ready_2_Heat_Power',
+                'main/SG_Ready_2_Cool_Power', 'main/SG_Ready_Stop_Power', 'main/SG_Ready_1_Cool_Capacity',
+                'main/SG_Ready_2_Cool_Capacity', 'main/Efficiency_Stage1_Time', 'main/Efficiency_Stage2_Time',
+                'main/Efficiency_Stage3_Time', 'main/Sensor_Offset_Remote_Th1', 'main/Sensor_Offset_Outdoor',
+                'main/Sensor_Offset_Return', 'main/Sensor_Offset_DHW_Tank', 'main/Sensor_Offset_Flow'
             ]
         ];
+    }
+
+    /**
+     * Soll die Variable zu einem Topic von selbst entstehen? Standard ja; Topics mit 'default' => false
+     * (z.B. die vielen Rueckmeldungen der Installateur-Menues) nur, wenn der Nutzer sie in der Liste waehlt.
+     */
+    public static function defaultSelected(string $topic): bool
+    {
+        return (self::topics()[$topic]['default'] ?? true) !== false;
     }
 
     /**

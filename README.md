@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-1.43.1-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-1.44.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -29,7 +29,7 @@ Die Nutzung dieses Moduls erfolgt **auf eigenes Risiko**. Das Modul sendet Befeh
 ## Voraussetzungen
 
 - Symcon ab Version 9.0
-- HeishaMon mit aktivierter MQTT-Anbindung
+- HeishaMon mit aktivierter MQTT-Anbindung. Empfohlen ist die aktuelle HeishaMon-Firmware ([Download und Update](https://github.com/heishamon/HeishaMon/releases/latest), mindestens 4.4.1 für alle Funktionen dieser Version); ältere Firmware läuft mit weniger Funktionen weiter
 - Eingerichteter MQTT Server (oder MQTT Client) in Symcon, mit dem der HeishaMon verbunden ist
 
 ## Installation
@@ -58,6 +58,10 @@ Hinweis: Eine über URL installierte Bibliothek wird nicht automatisch auf die S
 ## Datenpunkte auswählen
 
 In der Instanz-Konfiguration listet die Tabelle **Datenpunkte** alle bekannten HeishaMon-Topics. Die Spalte **Empfangen** zeigt, welche Topics die eigene Anlage tatsächlich sendet. Über die Spalte **Aktiv** lassen sich einzelne Datenpunkte abwählen — deren Variablen werden **ausgeblendet**. Objekt-ID, Wert-Aktualisierung und Archivdaten bleiben dabei erhalten; beim erneuten Aktivieren wird die Variable einfach wieder eingeblendet. Nur Datenpunkte, deren Variable noch gar nicht existiert, werden bei deaktivierter Auswahl auch nicht angelegt.
+
+**Neue Datenpunkte der Firmware 4.4:** Die Firmware 4.3/4.4 meldet über 50 zusätzliche Werte (TOP144–TOP198). Nur zehn davon legt das Modul von selbst an: tatsächlicher Flüster- und Powerful-Modus, Aktivität von Zone 1 und 2, Heizwasser-Ziel inklusive Pufferdifferenz, Nennleistung und Typ der Wärmepumpe, Abtausignal sowie die Höchstzeiten für Heizbetrieb und Warmwasser-Aufheizung. Die übrigen 45 (Rückmeldungen der Installateurmenüs, SG-Ready-Werte, Fühlerabgleiche, Bivalenz, Zusatzpumpe) sind in der Liste **abgewählt**; wer sie braucht, wählt sie dort an. Ob die eigene Anlage einen Wert liefert, hängt vom Modell ab.
+
+**Hinweis für die Platine (Firmware ab 4.4.0):** Die Topic-Gruppe **Installer settings** ist ab Werk ausgeschaltet. Dazu gehören zwölf Werte, die dieses Modul kennt (`Max_Pump_Duty`, `Pump_Flowrate_Mode`, `Liquid_Type`, `Anti_Freeze_Mode`, `Buffer_Installed`, `DHW_Installed`, `Alt_External_Sensor`, `Z1_Sensor_Settings`, `Z2_Sensor_Settings`, `Heating_Control`, `Quiet_Mode_Priority`, `DHW_Sensor_Selection`). Bleibt die Gruppe aus, stehen die Variablen auf dem letzten Wert still. In der Weboberfläche der Platine unter *Einstellungen → Advanced → Topic groups* einschalten und speichern. Das Modul zeigt dazu im Formular einen Hinweis, wenn eine Firmware ab 4.4.0 gemeldet wird und diese Variablen seit Stunden nicht aktualisiert wurden. Firmware herunterladen: [HeishaMon-Releases](https://github.com/heishamon/HeishaMon/releases/latest).
 
 Die Zeilen lassen sich durch **Ziehen mit der Maus sortieren** — die Variablen unter der Instanz und die Verknüpfungen in der Verknüpfungsstruktur folgen dieser Reihenfolge, sobald die Änderungen übernommen werden. Die Schaltfläche **Reihenfolge und Auswahl zurücksetzen** stellt den Standard wieder her.
 
@@ -276,10 +280,12 @@ Hinweis: HeishaMon meldet nicht, wer einen Sollwert zuletzt geändert hat (MQTT 
 
 ## Zusätzliche Befehle (optional)
 
-Im Bereich **Zusätzliche Befehle** lassen sich zwei reine Schreibfunktionen als schaltbare Variablen aktivieren — die Wärmepumpe meldet ihren Zustand dabei **nicht zurück**, die Anzeige spiegelt nur den zuletzt gesendeten Befehl:
+Im Bereich **Zusätzliche Befehle** lassen sich zusätzliche Funktionen als Variablen aktivieren. Der SmartGrid-Modus ist ein reiner Schreibbefehl — die Wärmepumpe meldet seinen Zustand **nicht zurück**, die Anzeige spiegelt nur den zuletzt gesendeten Befehl. Der Zustand der Relais wird dagegen ab Firmware 4.3 von der Platine zurückgelesen:
 
 - **SmartGrid-Modus**: bildet digital dieselben vier Betriebsarten nach, die sonst nur über physische Trockenkontakte am Außengerät geschaltet werden (natives "SG ready", Servicepunkt 16 in der Wärmepumpen-Bedienung). Wirkt nur, wenn an der Wärmepumpe selbst die Service-Einstellung **Optional PCB** auf **Ja** steht (ein anderer Menüpunkt als "SG ready" selbst) — sonst passiert nichts, ohne Fehlermeldung.
-- **Relais 1/2**: die beiden fest verbauten Relais der *großen* HeishaMon-Platine (`gpio/relay/one`/`two`), bis 230V/5A schaltbar — z. B. für einen externen Thermostatkontakt oder eine Pumpe. Nur vorhanden, wenn tatsächlich die große Platine verbaut ist; bei der kleinen Platine schalten diese Variablen ins Leere.
+- **Relais 1/2**: die beiden fest verbauten Relais der *großen* HeishaMon-Platine (`gpio/relay/one`/`two`), bis 230V/5A schaltbar — z. B. für einen externen Thermostatkontakt oder eine Pumpe. Nur vorhanden, wenn tatsächlich die große Platine verbaut ist; bei der kleinen Platine schalten diese Variablen ins Leere. Seit Version 1.44.0 liest das Modul den Zustand von `gpio/relay/one/state` bzw. `two/state` zurück (Firmware 4.3 oder neuer); schaltet eine Regel auf der Platine oder ein Modbus-Client ein Relais, folgt die Variable.
+- **Zusatz-GPIOs 1–5** (ab Version 1.44.0, eigene Option, nur Anzeige): Zustand der fünf frei konfigurierbaren GPIOs der großen Platine (`gpio/extra/N/state`), egal ob sie als Eingang oder Ausgang eingestellt sind.
+- **Fehlercode zurücksetzen** (ab Version 1.44.0): Die Schaltfläche bzw. `HEISHA_ResetFault($id)` sendet `SetReset`, wie die Taste „Reset“ an der Fernbedienung CZ-TAW1 oder am Innengerät. Sie löst Fehler, die ein Aus- und Einschalten nicht löst. Nur mit aktivierten Extra-Befehlen.
 
 ## Befehle per Skript
 

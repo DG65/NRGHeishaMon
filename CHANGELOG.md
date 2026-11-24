@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.44.0 — 2026-11-24
+
+Unterstützung der HeishaMon-Firmware 4.3/4.4 (Dietmars Platine, v4.4.1, am 24.11.2026 geprüft).
+
+- Neu: Datenpunkte der Firmware 4.4 (TOP144–TOP198) in der Datenpunkt-Liste. Neu angelegt werden standardmäßig nur zehn: tatsächlicher Flüster- und Powerful-Modus (`Quiet_Mode_Actual_State`, `Powerful_Mode_Actual_State`), Aktivität von Zone 1 und 2 (`Z1_Active`, `Z2_Active`), Heizwasser-Ziel inklusive Pufferdifferenz (`Heat_Request_Temp_With_Buffer`), Nennleistung und Typ (`Heat_Pump_Capacity`, `Heat_Pump_Type`), Abtausignal (`Defrost_Signal`) sowie die Höchstzeiten `Room_Operation_Max_Time` und `DHW_Heatup_Max_Time`. Die übrigen 45 (Rückmeldungen der Installateurmenüs, SG-Ready-Werte, Fühlerabgleiche, Bivalenz u. a.) sind in der Liste ab Werk abgewählt: ein Firmware-Update soll nicht Dutzende Variablen erzeugen. Neues Datenpunkt-Merkmal `default => false` in `HeishaMonTopics`
+- Neu: Befehle für neu angelegte Variablen: `SetQuietModeSchedule` (Flüsterzeitplan der Platine), `SetSterilizationTemp` (55–75 °C), `SetSterilizationMaxTime` (5–60 min), `SetHeatToCoolTemp`/`SetCoolToHeatTemp`, `SetRoomOperationMaxTime`, `SetDHWHeatupMaxTime`. Bestehende Variablen behalten ihre Darstellung (Regel 28)
+- Neu: Zustand der Relais der großen Platine wird von der Platine zurückgelesen (`gpio/relay/one|two/state`, retained, Firmware 4.3+). Vorher zeigte die Variable nur den zuletzt gesendeten Befehl; schaltet eine Platinen-Regel oder ein Modbus-Client ein Relais, blieb sie falsch
+- Neu: optional der Zustand der fünf Zusatz-GPIOs (`GpioExtra1`–`GpioExtra5`, nur Anzeige, im Panel „Extra-Befehle“, ab Werk aus)
+- Neu: Schaltfläche und Funktion `HEISHA_ResetFault()` (Befehl `SetReset`, wie die Taste „Reset“ an der Fernbedienung), nur mit aktivierten Extra-Befehlen
+- Änderung: Der Zeitplan nennt beim Zustand „von Hand geändert“ jetzt die naheliegende Ursache, wenn Regeln auf der Platine laufen (Befund 24.11.: eine Taktschutz-Regel setzt die Verschiebung nach jedem Verdichterstopp für 45 Minuten auf −5 K und stellt sie danach zurück; der Zeitplan kehrt dann von selbst auf „ok“ zurück)
+- Änderung: Typ-Spalte im Objektbaum lesbar („NRG-Stack HeishaMon“, SUITE.md „Typ-Spalte“); `name` in `module.json` bleibt unverändert
+- Neu: Hinweis im Formular, wenn bei Firmware ab 4.4.0 die Topic-Gruppe „Installer settings“ ausgeschaltet ist (zwölf Installateur-Variablen seit über zwei Stunden unverändert, Außentemperatur dagegen frisch), mit Schaltfläche zur Firmware-Seite `https://github.com/heishamon/HeishaMon/releases/latest`. Dieselbe Adresse steht im Doku-Panel, im README (Voraussetzungen) und in der Store-Beschreibung
+- Doku: Anleitung `EIGENES_WAERMEPUMPEN_MODUL.md`/`.en.md`: WPEEBUSHub ist seit 0.6.0 Store-Beta
+- Hinweis zur Platine: Ab Firmware 4.4.0 ist die Topic-Gruppe „Installer settings“ ab Werk aus (Einstellungen > Topic groups). Zwölf unserer Variablen (u. a. `Max_Pump_Duty`, `Anti_Freeze_Mode`, `Buffer_Installed`) bleiben dann auf dem letzten Wert stehen, bis die Gruppe eingeschaltet wird
+
 ## 1.43.1 — 2026-11-20
 
 - Neu (Fremdanbindung, Dietmar 20.11.2026; `heatpump`-Vertrag 1.19, mit EMS und WPHub abgestimmt): `HEISHA_GetFunctions()` meldet zusätzlich `contractType` ('heatpump'), `failsafeSec` (Höchstdauer in Sekunden, nach der das Modul einen selbst gestarteten Zusatzlauf beendet; nur mit Freigabe größer als 0, sonst 0), `failsafeMode` ('maxDuration': ein Ein-Wunsch, das Modul beendet selbst, der Konsument schreibt NICHT nach; kein Totmann) und `lastSeenAt` (Unix-Zeit der letzten Nachricht der Anlage, aus dem jüngsten Aktualisierungszeitpunkt der Datenpunkte, die die Platine in jedem Zyklus sendet; bleibt bei einem Ausfall stehen, 0 = nie). `contractVersion` '1.19'. Der Unterschied `deadman`/`maxDuration` stammt aus diesem Vorhaben und ist in der SUITE-Regel 5a „Fremdanbindung“ festgehalten

@@ -120,7 +120,7 @@ public function GetFunctions(): array
 
 ## 10. Vorbilder: zwei Module, zwei Rückfallarten
 
-| | HeishaMon (Panasonic über MQTT) | WPEEBUSHub (EEBUS, in Vorbereitung ab 0.6.0) |
+| | HeishaMon (Panasonic über MQTT) | WPEEBUSHub (EEBUS, Store-Beta ab 0.6.0) |
 | --- | --- | --- |
 | Steuern | `optionalRunID` = Warmwasser-Zusatzlauf, nur mit Freigabe | `optionalRunID` = Zusatzlauf (OHPCF), `powerLimitID` = Leistungsgrenze (LPC), je nur wenn die Wärmepumpe es anbietet |
 | `failsafeMode` | `maxDuration`: ein Start verbraucht den Wunsch, das Modul beendet den Lauf selbst nach `failsafeSec`; der Konsument schreibt **nicht** nach | `deadman`: der Konsument schreibt spätestens nach `failsafeSec`/2 nach; ohne Nachschreiben fällt die Wärmepumpe selbst in den sicheren Zustand |

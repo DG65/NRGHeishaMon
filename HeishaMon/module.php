@@ -117,6 +117,9 @@ class HeishaMon extends IPSModule
         ],
         '1.43.1' => [
             'New: the interface for other modules (EMS, dashboard) now describes itself: HEISHA_GetFunctions() additionally reports contractType, failsafeSec (maximum duration of the hot water boost, 0 without release), failsafeMode ("maxDuration": a one-time request, the consumer does not rewrite) and lastSeenAt (time of the last message of the heat pump). New guide "Connect your own heat pump module to the NRG-Stack" (EIGENES_WAERMEPUMPEN_MODUL.md). The store now shows the release date.'
+        ],
+        '1.44.0' => [
+            'New: support for the HeishaMon firmware 4.3/4.4. New optional data points (data point list): actual quiet and powerful mode, activity of zone 1 and 2, heating water target including buffer delta, rated capacity and type of the heat pump, defrost signal and the maximum times for room heating and DHW heat-up. 45 further read-back values of the installer menus can be switched on in the list, they are off by default. New commands for newly created variables: quiet mode schedule on/off, sterilization temperature and holding time, switch-over temperatures heating/cooling, maximum room heating and DHW heat-up times. The relays and, optionally, the five extra GPIOs of the large board are now read back from the board; new button "Reset the fault code of the heat pump". The time schedule says when board rules overwrite a shift value. The module is shown as "NRG-Stack HeishaMon" in the object tree. If the topic group "Installer settings" of a firmware 4.4 board is switched off, the form says so and links to the firmware page.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -172,6 +175,8 @@ class HeishaMon extends IPSModule
         //Zusaetzliche, reine Schreibbefehle ohne Rueckmeldung von der Waermepumpe (SmartGrid-
         //Modus, Relais der grossen Platine) - optional, da nicht jede Anlage das unterstuetzt
         $this->RegisterPropertyBoolean('EnableExtraCommands', false);
+        //Zustand der fuenf Zusatz-GPIOs der grossen Platine (Firmware 4.3 und neuer, nur lesen) - optional
+        $this->RegisterPropertyBoolean('EnableExtraGpio', false);
 
         //Automatische Archivierung der Monitoring-Datenpunkte (fuer Zeitreihen-Kacheln wie
         //NRGDashboardWPMonitor). Attribut merkt sich einmal aktivierte Variablen, damit
@@ -330,6 +335,12 @@ class HeishaMon extends IPSModule
         //"Ueber dieses Modul" ganz unten, NACH dem Forum-Hinweis - anders als die anderen
         //Hinweis-Panels bewusst NICHT dismissible (SUITE.md "Einheitliche Formular-Optik" Punkt 5).
         $form['elements'][] = $this->buildLicenseHint();
+
+        //Firmware-Hinweis (Installateur-Topics aus), unterhalb von "Neu in Version"
+        $firmwareHint = $this->buildFirmwareHint();
+        if ($firmwareHint !== null) {
+            array_unshift($form['elements'], $firmwareHint);
+        }
 
         //"Neu in Version" ganz oben, solange die aktuelle Version nicht bestaetigt wurde
         $newsPanel = $this->buildNewsPanel();
@@ -918,6 +929,64 @@ class HeishaMon extends IPSModule
         $this->UpdateFormField('NewsPanel', 'visible', false);
     }
 
+    /** Download der HeishaMon-Firmware (aktuelle Version, Hinweis im Formular und in der Doku). */
+    private const FIRMWARE_URL = 'https://github.com/heishamon/HeishaMon/releases/latest';
+
+    /**
+     * Installateur-Topics, die die Firmware ab 4.4.0 nur noch in der Topic-Gruppe "Installer settings"
+     * veroeffentlicht (ab Werk aus). Aus der Release-Beschreibung der Firmware 4.4.0 uebernommen.
+     */
+    private const INSTALLER_TOPIC_IDENTS = ['Max_Pump_Duty', 'Buffer_Installed', 'DHW_Installed', 'Pump_Flowrate_Mode', 'Liquid_Type',
+        'Alt_External_Sensor', 'Anti_Freeze_Mode', 'Z1_Sensor_Settings', 'Z2_Sensor_Settings', 'Heating_Control',
+        'Quiet_Mode_Priority', 'DHW_Sensor_Selection'];
+
+    /**
+     * Anzahl der Installateur-Variablen, die seit Stunden nicht mehr aktualisiert wurden, obwohl die Platine
+     * sonst Werte liefert und eine Firmware ab 4.4.0 meldet. Dann ist die Topic-Gruppe "Installer settings"
+     * der Platine sehr wahrscheinlich aus. 0 = kein Hinweis noetig oder nicht beurteilbar.
+     */
+    private function staleInstallerVariableCount(): int
+    {
+        $versionID = $this->idForIdent('Stats_FirmwareVersion');
+        if ($versionID === 0 || !preg_match('/(\d+)\.(\d+)\.(\d+)/', (string) GetValue($versionID), $m)) {
+            return 0;
+        }
+        if (((int) $m[1] * 10000 + (int) $m[2] * 100 + (int) $m[3]) < 40400) {
+            return 0;
+        }
+        //Platine liefert sonst frische Werte (Aussentemperatur in den letzten 15 Minuten)?
+        $freshID = $this->idForIdent('Outside_Temp');
+        if ($freshID === 0 || time() - (int) IPS_GetVariable($freshID)['VariableUpdated'] > 900) {
+            return 0;
+        }
+        $stale = 0;
+        foreach (self::INSTALLER_TOPIC_IDENTS as $ident) {
+            $id = $this->idForIdent($ident);
+            if ($id > 0 && time() - (int) IPS_GetVariable($id)['VariableUpdated'] > 7200) {
+                $stale++;
+            }
+        }
+        return $stale;
+    }
+
+    private function buildFirmwareHint(): ?array
+    {
+        $stale = $this->staleInstallerVariableCount();
+        if ($stale === 0) {
+            return null;
+        }
+        return [
+            'type'     => 'ExpansionPanel',
+            'name'     => 'FirmwareHintPanel',
+            'expanded' => true,
+            'caption'  => '⚠️ Firmware 4.4: topic group "Installer settings" is switched off',
+            'items'    => [
+                ['type' => 'Label', 'caption' => sprintf($this->Translate('%d variables of the installer menu (for example the maximum pump duty) have not been updated for hours. From firmware 4.4.0 the HeishaMon board no longer publishes them by default. Switch the group on in the web interface of the board under Settings > Advanced > Topic groups > "Installer settings" and save.'), $stale)],
+                ['type' => 'Button', 'caption' => 'Open the HeishaMon firmware page', 'onClick' => "echo '" . self::FIRMWARE_URL . "';", 'link' => true]
+            ]
+        ];
+    }
+
     /**
      * Einmaliger Hinweis auf den Symcon-Forum-Thread, solange nicht ausgeblendet. Dismissible
      * ExpansionPanel (SUITE.md "Einheitliche Formular-Optik" Punkt 4, Referenz MeterHub) -
@@ -994,7 +1063,7 @@ class HeishaMon extends IPSModule
         };
         foreach ($orderedTopics as $topic) {
             $rows[] = [
-                'Selected' => $selection[$topic] ?? true,
+                'Selected' => $selection[$topic] ?? HeishaMonTopics::defaultSelected($topic),
                 'Caption'  => $text($topics[$topic]['cap']),
                 'Group'    => $text(HeishaMonTopics::groupForTopic($topic)),
                 'Topic'    => $topic,
@@ -1073,7 +1142,7 @@ class HeishaMon extends IPSModule
                 continue;
             }
             $object = IPS_GetObject($variableID);
-            $hidden = !($selection[$topic] ?? true);
+            $hidden = !($selection[$topic] ?? HeishaMonTopics::defaultSelected($topic));
             if ($object['ObjectIsHidden'] != $hidden) {
                 IPS_SetHidden($variableID, $hidden);
             }
@@ -1126,6 +1195,7 @@ class HeishaMon extends IPSModule
         $this->maintainSmartGridModeVariable($extraEnabled);
         $this->maintainRelayVariable('GpioRelay1', $this->Translate('Relay 1 (large board)'), 260, $extraEnabled);
         $this->maintainRelayVariable('GpioRelay2', $this->Translate('Relay 2 (large board)'), 261, $extraEnabled);
+        $this->maintainExtraGpioVariables($this->ReadPropertyBoolean('EnableExtraGpio'));
 
         if (IPS_GetKernelRunlevel() == KR_READY) {
             $this->registerExternalMessages();
@@ -1255,7 +1325,7 @@ class HeishaMon extends IPSModule
     private function isTopicSelected(string $topic): bool
     {
         $map = $this->getSelectionMap();
-        return $map[$topic] ?? true;
+        return $map[$topic] ?? HeishaMonTopics::defaultSelected($topic);
     }
 
     /**
@@ -1442,7 +1512,7 @@ class HeishaMon extends IPSModule
         $selection = $this->getSelectionMap();
         $desired = [];
         foreach ($this->getOrderedTopics() as $topic) {
-            if (!($selection[$topic] ?? true)) {
+            if (!($selection[$topic] ?? HeishaMonTopics::defaultSelected($topic))) {
                 continue;
             }
             $variableID = @$this->GetIDForIdent(HeishaMonTopics::identFromTopic($topic));
@@ -2092,6 +2162,13 @@ class HeishaMon extends IPSModule
         //Platinen-Diagnose: HeishaMon publiziert zyklisch ein Status-JSON auf <base>/stats
         if ($subTopic == 'stats') {
             $this->receiveStats($payload);
+            return '';
+        }
+
+        //Zustand der Relais und Zusatz-GPIOs der grossen Platine (Firmware 4.3 und neuer, retained):
+        //<base>/gpio/relay/one|two/state und <base>/gpio/extra/1..5/state, Werte 0/1
+        if (preg_match('#^gpio/(?:relay/(one|two)|extra/([1-5]))/state$#', $subTopic, $matches)) {
+            $this->receiveGpioState($matches[1] !== '' ? ($matches[1] === 'one' ? 'GpioRelay1' : 'GpioRelay2') : 'GpioExtra' . $matches[2], $payload);
             return '';
         }
 
@@ -2754,6 +2831,56 @@ class HeishaMon extends IPSModule
         }
 
         $this->SendSetCommand($definition['set'], $payload);
+    }
+
+    /**
+     * Quittiert einen anstehenden Fehlercode der Waermepumpe (HeishaMon-Befehl SetReset, wie die Taste
+     * "Reset" an der Fernbedienung CZ-TAW1 bzw. am Innengeraet). Loest Fehler, die ein Aus- und Einschalten
+     * (SetHeatpump 0, 1) nicht loest. Nur mit aktivierten Extra-Befehlen.
+     */
+    public function ResetFault()
+    {
+        if (!$this->ReadPropertyBoolean('EnableExtraCommands')) {
+            echo $this->Translate('Enable "Show extra command variables" and apply the changes first.');
+            return;
+        }
+        $this->SendSetCommand('SetReset', '1');
+        echo $this->Translate('Reset command sent. Whether the heat pump accepts it, shows in the error variable.');
+    }
+
+    /**
+     * Zustand eines Relais bzw. Zusatz-GPIOs von der Platine uebernehmen. Die Platine meldet den Zustand
+     * bei jeder Aenderung, egal ob sie von MQTT, REST, Modbus oder einer Regel kommt, und nach jeder
+     * MQTT-Verbindung neu. Variablen, die es nicht gibt (Option aus), werden nicht angelegt.
+     */
+    private function receiveGpioState(string $ident, string $payload)
+    {
+        $variableID = @$this->GetIDForIdent($ident);
+        if ($variableID === false) {
+            return;
+        }
+        $this->SetValue($ident, trim($payload) === '1');
+    }
+
+    /**
+     * Die fuenf Zusatz-GPIOs der grossen Platine als reine Zustandsanzeige (Eingang oder Ausgang, je
+     * nach Einstellung der Platine). Ausgaenge schaltet der Nutzer weiter ueber die Platine selbst.
+     */
+    private function maintainExtraGpioVariables(bool $enabled)
+    {
+        for ($number = 1; $number <= 5; $number++) {
+            $ident = 'GpioExtra' . $number;
+            $variableID = @$this->GetIDForIdent($ident);
+            $caption = $this->Translate('Extra GPIO') . ' ' . $number;
+            $presentation = $this->buildPresentation(['kind' => 'bool', 'on' => 'On', 'off' => 'Off']);
+            if (!$enabled) {
+                if ($variableID !== false) {
+                    $this->MaintainVariable($ident, $caption, VARIABLETYPE_BOOLEAN, $presentation, 261 + $number, false);
+                }
+                continue;
+            }
+            $this->maintainDefaultPresentation($ident, $caption, VARIABLETYPE_BOOLEAN, $presentation, 261 + $number);
+        }
     }
 
     /**
@@ -4111,6 +4238,13 @@ class HeishaMon extends IPSModule
             case 'pending':
                 return $this->Translate('Waiting for the heat pump to take over the planned value.');
             case 'manual':
+                //Laufen Regeln auf der Platine (Stats_RulesActive > 0), ist das die naheliegende Ursache
+                //(z.B. ein Taktschutz, der die Verschiebung nach einem Verdichterstopp kurz absenkt) -
+                //dann sinkt der Wert von selbst wieder auf den Plan zurueck, sobald die Regel fertig ist
+                $rulesID = $this->idForIdent('Stats_RulesActive');
+                if ($rulesID > 0 && (int) GetValue($rulesID) > 0) {
+                    return $this->Translate('The heat pump reports a different value. Rules are running on the board, which can overwrite shift values (for example a short-cycle protection after the compressor stops). The planned value applies again when the rule resets it, at the latest at the next switching time.');
+                }
                 return $this->Translate('The heat pump reports a different value (changed by hand or overwritten by board rules) - the schedule applies again at the next switching time.');
             case 'fault':
                 return $this->Translate('The heat pump does not take over the value.');

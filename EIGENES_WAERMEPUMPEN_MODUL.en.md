@@ -120,7 +120,7 @@ public function GetFunctions(): array
 
 ## 10. Reference modules: two modules, two kinds of fallback
 
-| | HeishaMon (Panasonic via MQTT) | WPEEBUSHub (EEBUS, in preparation from 0.6.0) |
+| | HeishaMon (Panasonic via MQTT) | WPEEBUSHub (EEBUS, store beta from 0.6.0) |
 | --- | --- | --- |
 | Control | `optionalRunID` = hot water boost, only with release | `optionalRunID` = additional run (OHPCF), `powerLimitID` = power limit (LPC), each only if the heat pump offers it |
 | `failsafeMode` | `maxDuration`: one start consumes the request, the module ends the run itself after `failsafeSec`; the consumer does **not** rewrite | `deadman`: the consumer rewrites at the latest after `failsafeSec`/2; without rewriting the heat pump falls back to the safe state by itself |
