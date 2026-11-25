@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-1.45.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-1.46.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -170,12 +170,13 @@ Ein langsamer Regler, der die geplante Heiz-Verschiebung des Zeitplans an die R�
 
 ### Sonnenwärme der Verschattung (optional, ab Version 1.45.0)
 
-Zusätzliche Eingangsgröße der Raumführung: Ist das Modul **NRG-Stack Verschattung** (ab 0.11, Vertrag `shading` 1.1, `VSCH_GetState`) installiert, kann das Modul die Verschiebung der Heiz-Kanäle um **1 bis 2 K** absenken, solange die Sonne das Haus kräftig heizt. Ab Werk aus; es braucht den Zeitplan und einen eingeschalteten Heiz-Kanal. Die Absenkung läuft wie der Versatz der Raumführung über den Zeitplan (einziger Schreiber der Verschiebung, mit Kontrolle und Flatter-Schutz). Das Modul liest die Verschattung nur und schreibt nie hinein.
+Zusätzliche Eingangsgröße der Raumführung (geschaltet mit der Variable „Sonnenwärme der Verschattung nutzen“, `RoomShift_SolarAssist`, ab Version 1.46.0; vorher ein Häkchen im Formular, das einmal übernommen wird): Ist das Modul **NRG-Stack Verschattung** (ab 0.11, Vertrag `shading` 1.1, `VSCH_GetState`) installiert, kann das Modul die Verschiebung der Heiz-Kanäle um **1 bis 2 K** absenken, solange die Sonne das Haus kräftig heizt. Ab Werk aus; es braucht den Zeitplan und einen eingeschalteten Heiz-Kanal. Die Absenkung läuft wie der Versatz der Raumführung über den Zeitplan (einziger Schreiber der Verschiebung, mit Kontrolle und Flatter-Schutz). Das Modul liest die Verschattung nur und schreibt nie hinein.
 
 - **Schnelle Heizung (Heizkörper):** zählt der aktuelle Wert `gainNowW` (Sonnenwärme jetzt in W, mit den Behängen, wie sie stehen; `null` gilt als keine Sonne). Erreicht er die Schwelle (Standard 1500 W), wird abgesenkt; unter 60 Prozent der Schwelle kehrt die Verschiebung zum Plan zurück. Das braucht keine Prognose.
 - **Träge Heizung (Fußboden):** zählt die Erwartung `gainNextHoursWh` (Mittel der nächsten 1–6 Stunden, Standard 3). Das gilt nur, wenn die Verschattung `basis: "forecast"` meldet, also die Wolkenprognose eingerechnet hat; bei `clearSky` bleibt der Plan unverändert.
 - **Automatisch** (Standard) richtet sich nach der Einstellung „Heizung in den Räumen“ der Verschattung (`heating`: Heizkörper → aktueller Wert, Fußboden/gemischt → Erwartung, unbekannt → aktueller Wert); im Formular lässt sich die Reaktion der Heizung auch festlegen.
 - **Schutz:** höchstens eine Änderung je halbe Stunde (schont den Verdichter); nie absenken, wenn die Räume unter dem Zielband der Raumführung liegen; bei fehlender, zu alter (über 30 Minuten) oder nicht auf Heizen stehender Verschattung, ohne Wolkenprognose (träge Heizung) und wenn die Heizung nicht läuft, gilt der Plan sofort unverändert. Wird die Raumführung gleichzeitig benutzt, addieren sich beide Versätze innerhalb der Kanalgrenzen (−5 bis +5 K).
+- `HEISHA_GetSolarAssist($id)` (ab 1.46.0, rein lesend) meldet `available`, `enabled`, `active`, `offsetK`, `inertia`, `thresholdW`, `switchIdent`/`switchID` und `reason`; geschaltet wird per `RequestAction` auf die Variable `RoomShift_SolarAssist`, nie über eine Eigenschaft.
 - `HEISHA_GetSchedule` meldet den Zustand unter `roomShift.solar` (`enabled`, `offset`, `powerW`, `thresholdW`, `changedAt`, `reason`).
 
 ## Energiespar-Prüfung

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.46.0 — 2026-11-25
+
+Schnittstelle für den Verschattungs-Assistenten: Die Sonnenwärme-Nutzung wird mit einer Schaltvariable geschaltet (Dietmar am 25.11.2026 freigegeben).
+
+- Änderung: Die Sonnenwärme-Nutzung (1.45.0) wird nicht mehr mit dem Häkchen im Formular, sondern mit der Variable `RoomShift_SolarAssist` („Sonnenwärme der Verschattung nutzen“, Schalter mit Aktion, neben dem Zeitplan) geschaltet. Der Zustand liegt in einem Attribut, nie in einer Eigenschaft, die ein anderes Modul setzen müsste (Store-Review: Eigenschaften gehören dem Nutzer). Ein in 1.45.0 gesetztes Häkchen wird einmal übernommen; die Eigenschaft `RoomShiftSolarEnabled` bleibt nur dafür registriert.
+- Neu: `HEISHA_GetSolarAssist()` (rein lesend): `available` (Zeitplan eingeschaltet), `enabled`, `active`, `offsetK`, `inertia` (`auto`|`short`|`long`), `thresholdW`, `switchIdent`, `switchID`, `reason`. Die Verschattung schaltet nach dem Klick des Nutzers mit `RequestAction` auf die Variable.
+- Änderung: Die Sonnenwärme braucht nur den eingeschalteten Zeitplan, nicht mehr die Raumführung; Einschalten prüft sofort.
+
 ## 1.45.0 — 2026-11-25
 
 Sonnenwärme der Verschattung als Eingangsgröße der Raumführung (Vertrag `shading` 1.1, Verschattung 0.11, Dietmar am 25.11.2026 freigegeben).

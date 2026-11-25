@@ -123,6 +123,9 @@ class HeishaMon extends IPSModule
         ],
         '1.45.0' => [
             'New: the solar heat of the shading (NRG-Stack Verschattung 0.11, contract shading 1.1) can lower the shift of the heating channels by 1 to 2 K while the sun heats the house strongly (optional, off by default). With a fast heating the current value counts, with a slow heating the expectation for the next hours. The module only reads; if the shading is missing or outdated, the rooms are cool or the heating is not running, the plan applies unchanged.'
+        ],
+        '1.46.0' => [
+            'New: the solar heat of the shading is now switched with the variable "Use the solar heat of the shading" (shown next to the time schedule) instead of the check box in the form, so the shading wizard can offer to switch it on after your click; a check box set in version 1.45.0 is taken over once. New interface HEISHA_GetSolarAssist() reports whether the function is available and switched on, the reaction of the heating and the current lowering. The solar heat only needs the time schedule to be switched on.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -2791,6 +2794,17 @@ class HeishaMon extends IPSModule
             $this->ScheduleTick();
             return;
         }
+        if ($Ident === 'RoomShift_SolarAssist') {
+            $on = boolval($Value);
+            $this->WriteAttributeBoolean('RoomShiftSolarOn', $on);
+            $this->WriteAttributeString('RoomShiftSolarReason', '');
+            $this->WriteAttributeInteger('RoomShiftSolarOffset', 0);
+            $this->SetValue($Ident, $on);
+            $this->LogMessage($on ? 'Solar heat of the shading switched on' : 'Solar heat of the shading switched off', KL_MESSAGE);
+            //Einschalten prueft sofort, Ausschalten nimmt die Absenkung im selben Durchlauf zurueck
+            $this->ScheduleTick();
+            return;
+        }
         if ($Ident === 'HeatAuto_Active') {
             $this->SetValue($Ident, boolval($Value));
             if (boolval($Value)) {
@@ -3858,7 +3872,10 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeInteger('RoomShiftSampleAt', 0);
         $this->RegisterAttributeString('RoomShiftReason', '');
         //Sonnenwaerme der Verschattung als zusaetzliche Eingangsgroesse (seit 1.45.0): senkt die Verschiebung der Heiz-Kanaele zeitweise ab
+        //seit 1.46.0 ist die Eigenschaft nur noch Quelle der einmaligen Uebernahme in die Schaltvariable (RoomShift_SolarAssist); der Zustand liegt im Attribut
         $this->RegisterPropertyBoolean('RoomShiftSolarEnabled', false);
+        $this->RegisterAttributeBoolean('RoomShiftSolarOn', false);
+        $this->RegisterAttributeBoolean('RoomShiftSolarMigrated', false);
         $this->RegisterPropertyInteger('RoomShiftSolarInertia', 0);
         $this->RegisterPropertyInteger('RoomShiftSolarThresholdW', 1500);
         $this->RegisterPropertyInteger('RoomShiftSolarOffsetK', 1);
@@ -3872,8 +3889,15 @@ class HeishaMon extends IPSModule
 
     private function maintainSchedule()
     {
+        if (!(bool) $this->ReadAttributeBoolean('RoomShiftSolarMigrated')) {
+            //1.45.0 kannte nur das Haekchen im Formular: sein Wert wird einmal in den Zustand der Schaltvariable uebernommen
+            $this->WriteAttributeBoolean('RoomShiftSolarOn', $this->ReadPropertyBoolean('RoomShiftSolarEnabled'));
+            $this->WriteAttributeBoolean('RoomShiftSolarMigrated', true);
+        }
         $enabled = $this->ReadPropertyBoolean('SchedEnabled');
         if (!$enabled) {
+            $this->MaintainVariable('RoomShift_SolarAssist', $this->Translate('Use the solar heat of the shading'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 278, false);
+            $this->WriteAttributeInteger('RoomShiftSolarOffset', 0);
             $this->SetTimerInterval('SchedTick', 0);
             $this->MaintainVariable('Sched_Active', $this->Translate('Time schedule'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 275, false);
             $this->MaintainVariable('Sched_Status', $this->Translate('Time schedule: status'), VARIABLETYPE_STRING, [], 276, false);
@@ -3893,7 +3917,11 @@ class HeishaMon extends IPSModule
                 $this->MaintainVariable('RoomShift_Offset', $this->Translate('Room-guided shift offset'), VARIABLETYPE_INTEGER, [], 277, false);
             }
         }
-        if (!$this->ReadPropertyBoolean('RoomShiftSolarEnabled')) {
+        //Schaltvariable der Sonnenwaerme-Nutzung (seit 1.46.0): Zustand = Attribut, die Variable zeigt ihn und nimmt Schaltbefehle an
+        $this->maintainDefaultPresentation('RoomShift_SolarAssist', $this->Translate('Use the solar heat of the shading'), VARIABLETYPE_BOOLEAN, ['PRESENTATION' => VARIABLE_PRESENTATION_SWITCH], 278);
+        $this->EnableAction('RoomShift_SolarAssist');
+        $this->SetValue('RoomShift_SolarAssist', $this->roomShiftSolarOn());
+        if (!$this->roomShiftSolarOn()) {
             //Sonnenwaerme-Nutzung aus: die Absenkung entfaellt, der Plan gilt wieder unveraendert
             $this->WriteAttributeInteger('RoomShiftSolarOffset', 0);
             $this->WriteAttributeString('RoomShiftSolarReason', '');
@@ -3948,7 +3976,7 @@ class HeishaMon extends IPSModule
         if ($this->ReadPropertyBoolean('RoomShiftEnabled')) {
             $offset += (int) $this->ReadAttributeInteger('RoomShiftOffset');
         }
-        if ($this->ReadPropertyBoolean('RoomShiftSolarEnabled')) {
+        if ($this->roomShiftSolarOn()) {
             //Absenkung durch die Sonnenwaerme (0 oder negativ), unabhaengig vom langsamen Raumregler
             $offset += (int) $this->ReadAttributeInteger('RoomShiftSolarOffset');
         }
@@ -4115,6 +4143,38 @@ class HeishaMon extends IPSModule
     private const SOLAR_MIN_HOLD_SECONDS = 1800;
     private const SOLAR_OFF_FACTOR = 0.6;
 
+    /** Ist die Sonnenwaerme-Nutzung eingeschaltet? (Zustand der Schaltvariable RoomShift_SolarAssist, seit 1.46.0 ein Attribut) */
+    private function roomShiftSolarOn(): bool
+    {
+        return (bool) $this->ReadAttributeBoolean('RoomShiftSolarOn');
+    }
+
+    /**
+     * Schnittstelle fuer die Verschattung (und andere Module): Ist die Sonnenwaerme-Nutzung verfuegbar, an, und welche Traegheit gilt?
+     * Rein lesend. Geschaltet wird ueber die Variable "RoomShift_SolarAssist" (RequestAction), nie ueber eine Eigenschaft dieser Instanz.
+     * 'available' ist wahr, wenn der Zeitplan eingeschaltet ist (ohne ihn gibt es keine Verschiebung, die man absenken koennte).
+     * 'inertia': 'auto' (folgt dem Feld heating der Verschattung), 'short' (aktueller Wert) oder 'long' (Erwartung der naechsten Stunden).
+     */
+    public function GetSolarAssist()
+    {
+        $available = (bool) $this->ReadPropertyBoolean('SchedEnabled');
+        $inertia = (int) $this->ReadPropertyInteger('RoomShiftSolarInertia');
+        $info = $this->roomShiftSolarInfo();
+        $variableID = @$this->GetIDForIdent('RoomShift_SolarAssist');
+        return [
+            'contractVersion' => '1.0',
+            'available'       => $available,
+            'enabled'         => $available && $this->roomShiftSolarOn(),
+            'active'          => $info['offset'] !== 0,
+            'offsetK'         => $info['offset'],
+            'inertia'         => $inertia === 1 ? 'short' : ($inertia === 2 ? 'long' : 'auto'),
+            'thresholdW'      => $info['thresholdW'],
+            'switchIdent'     => 'RoomShift_SolarAssist',
+            'switchID'        => $variableID === false ? 0 : (int) $variableID,
+            'reason'          => $info['reason']
+        ];
+    }
+
     /** Liest den Zustand der Verschattung; null mit Grund, wenn nichts Brauchbares vorliegt. */
     private function roomShiftSolarRead(int $now): array
     {
@@ -4192,7 +4252,7 @@ class HeishaMon extends IPSModule
 
     private function roomShiftSolarTick(int $now)
     {
-        if (!$this->ReadPropertyBoolean('RoomShiftSolarEnabled') || !$this->scheduleIsActive()) {
+        if (!$this->roomShiftSolarOn() || !$this->scheduleIsActive()) {
             return;
         }
         $plan = $this->schedulePlan();
@@ -4239,7 +4299,7 @@ class HeishaMon extends IPSModule
     /** Zustand der Sonnenwaerme-Nutzung fuer GetSchedule() und das Formular. */
     private function roomShiftSolarInfo(): array
     {
-        $enabled = $this->ReadPropertyBoolean('RoomShiftSolarEnabled');
+        $enabled = $this->roomShiftSolarOn();
         $reason = (string) $this->ReadAttributeString('RoomShiftSolarReason');
         return [
             'enabled'    => $enabled,
@@ -4253,8 +4313,11 @@ class HeishaMon extends IPSModule
 
     private function roomShiftSolarStatusLine(): string
     {
-        if (!$this->ReadPropertyBoolean('RoomShiftSolarEnabled')) {
-            return $this->Translate('ℹ️ The solar heat of the shading is not used. Enable it above.');
+        if (!$this->ReadPropertyBoolean('SchedEnabled')) {
+            return $this->Translate('ℹ️ The solar heat of the shading needs the time schedule. Enable it above.');
+        }
+        if (!$this->roomShiftSolarOn()) {
+            return $this->Translate('ℹ️ The solar heat of the shading is not used. Switch on the variable "Use the solar heat of the shading".');
         }
         $info = $this->roomShiftSolarInfo();
         $line = sprintf($this->Translate('☀️ Solar heat: offset %+d K, %d W (threshold %d W).'), $info['offset'], (int) $info['powerW'], $info['thresholdW']);

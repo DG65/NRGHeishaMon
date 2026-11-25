@@ -890,16 +890,11 @@
                 },
                 {
                     "type": "Label",
-                    "caption": "Solar heat (optional): if the module NRG-Stack Verschattung is installed, the shift of the heating channels is lowered by 1 to 2 K while the sun heats the house strongly. Off by default; it needs the schedule and an enabled heating channel."
+                    "caption": "🆕 Solar heat (optional): if the module NRG-Stack Verschattung is installed, the shift of the heating channels is lowered by 1 to 2 K while the sun heats the house strongly. Off by default; it needs the schedule and an enabled heating channel. Switch it on with the variable \"Use the solar heat of the shading\" of this instance (or let the shading ask you)."
                 },
                 {
                     "type": "RowLayout",
                     "items": [
-                        {
-                            "type": "CheckBox",
-                            "name": "RoomShiftSolarEnabled",
-                            "caption": "🆕 Lower the shift while the sun heats the house"
-                        },
                         {
                             "type": "PopupButton",
                             "caption": "How does the use of the solar heat work?",
