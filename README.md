@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-1.44.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-1.45.0-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -167,6 +167,16 @@ Das EMS kann bei PV-Überschuss einen **Warmwasser-Lauf** anfordern: Die Wärmep
 ### Raumführung der Verschiebung (optional, ab Version 1.43.0)
 
 Ein langsamer Regler, der die geplante Heiz-Verschiebung des Zeitplans an die Räume anpasst. Alle 10 Minuten notiert das Modul die Raumtemperatur (dieselben Räume wie die Heizungs-Automatik: eigene Auswahl oder automatisch über die Raumstruktur, Median), solange geheizt wird. Nach mindestens 20 Stunden Daten vergleicht es das **24-Stunden-Mittel** mit dem Zielband (Standard 22,0 °C ± 0,5 K): Liegen die Räume darüber, sinkt ein **Versatz** um 1 K, liegen sie darunter, steigt er um 1 K. Höchstens eine Änderung je Haltezeit (Standard 24 Stunden) und höchstens ±3 K. Der Zeitplan setzt „geplanter Wert + Versatz“ mit seiner üblichen Kontrolle um, das Ergebnis bleibt zwischen −5 und +5 K. Es kommen also nur wenige Änderungen am Tag bei der Wärmepumpe an. Voraussetzung ist ein eingeschalteter Heiz-Kanal im Zeitplan. Ab Werk aus; Einstellung im Bereich „Zeitplan“. Der Versatz steht in der Variable `Raumgeführter Verschiebungs-Versatz` und in `HEISHA_GetSchedule()['roomShift']`.
+
+### Sonnenwärme der Verschattung (optional, ab Version 1.45.0)
+
+Zusätzliche Eingangsgröße der Raumführung: Ist das Modul **NRG-Stack Verschattung** (ab 0.11, Vertrag `shading` 1.1, `VSCH_GetState`) installiert, kann das Modul die Verschiebung der Heiz-Kanäle um **1 bis 2 K** absenken, solange die Sonne das Haus kräftig heizt. Ab Werk aus; es braucht den Zeitplan und einen eingeschalteten Heiz-Kanal. Die Absenkung läuft wie der Versatz der Raumführung über den Zeitplan (einziger Schreiber der Verschiebung, mit Kontrolle und Flatter-Schutz). Das Modul liest die Verschattung nur und schreibt nie hinein.
+
+- **Schnelle Heizung (Heizkörper):** zählt der aktuelle Wert `gainNowW` (Sonnenwärme jetzt in W, mit den Behängen, wie sie stehen; `null` gilt als keine Sonne). Erreicht er die Schwelle (Standard 1500 W), wird abgesenkt; unter 60 Prozent der Schwelle kehrt die Verschiebung zum Plan zurück. Das braucht keine Prognose.
+- **Träge Heizung (Fußboden):** zählt die Erwartung `gainNextHoursWh` (Mittel der nächsten 1–6 Stunden, Standard 3). Das gilt nur, wenn die Verschattung `basis: "forecast"` meldet, also die Wolkenprognose eingerechnet hat; bei `clearSky` bleibt der Plan unverändert.
+- **Automatisch** (Standard) richtet sich nach der Einstellung „Heizung in den Räumen“ der Verschattung (`heating`: Heizkörper → aktueller Wert, Fußboden/gemischt → Erwartung, unbekannt → aktueller Wert); im Formular lässt sich die Reaktion der Heizung auch festlegen.
+- **Schutz:** höchstens eine Änderung je halbe Stunde (schont den Verdichter); nie absenken, wenn die Räume unter dem Zielband der Raumführung liegen; bei fehlender, zu alter (über 30 Minuten) oder nicht auf Heizen stehender Verschattung, ohne Wolkenprognose (träge Heizung) und wenn die Heizung nicht läuft, gilt der Plan sofort unverändert. Wird die Raumführung gleichzeitig benutzt, addieren sich beide Versätze innerhalb der Kanalgrenzen (−5 bis +5 K).
+- `HEISHA_GetSchedule` meldet den Zustand unter `roomShift.solar` (`enabled`, `offset`, `powerW`, `thresholdW`, `changedAt`, `reason`).
 
 ## Energiespar-Prüfung
 

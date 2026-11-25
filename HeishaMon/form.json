@@ -887,6 +887,88 @@
                     "type": "Label",
                     "name": "RoomShiftStatus",
                     "caption": "ROOMSHIFTSTATUS"
+                },
+                {
+                    "type": "Label",
+                    "caption": "Solar heat (optional): if the module NRG-Stack Verschattung is installed, the shift of the heating channels is lowered by 1 to 2 K while the sun heats the house strongly. Off by default; it needs the schedule and an enabled heating channel."
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "CheckBox",
+                            "name": "RoomShiftSolarEnabled",
+                            "caption": "🆕 Lower the shift while the sun heats the house"
+                        },
+                        {
+                            "type": "PopupButton",
+                            "caption": "How does the use of the solar heat work?",
+                            "width": "400px",
+                            "popup": {
+                                "caption": "How does the use of the solar heat work?",
+                                "items": [
+                                    {
+                                        "type": "Label",
+                                        "caption": "The module asks the shading (contract shading 1.1, read only) once a minute how much solar heat enters the house through the windows, with the blinds as they are. If it reaches the threshold, the shift of the heating channels is lowered by the set number of Kelvin, below 60 percent of the threshold it returns to the plan. At most one change per half hour protects the compressor. The room temperature guards the lowering: below the target band of the room-guided shift nothing is lowered. With a fast heating (radiators) the current value counts, with a slow heating (underfloor) the expectation for the next hours, which needs the cloud forecast of the shading. If the shading is missing, outdated or not in heating mode, or the heating is not running, the plan applies unchanged. The module never writes into the shading; the time schedule applies the lowering with its usual check and flutter protection."
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "Select",
+                    "name": "RoomShiftSolarInertia",
+                    "caption": "Reaction of the heating",
+                    "options": [
+                        {
+                            "caption": "Automatic (by the setting of the shading)",
+                            "value": 0
+                        },
+                        {
+                            "caption": "Fast (radiators): current solar heat",
+                            "value": 1
+                        },
+                        {
+                            "caption": "Slow (underfloor): expectation for the next hours",
+                            "value": 2
+                        }
+                    ]
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "RoomShiftSolarThresholdW",
+                    "caption": "Threshold for the solar heat",
+                    "suffix": " W",
+                    "minimum": 100,
+                    "maximum": 20000
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "RoomShiftSolarOffsetK",
+                    "caption": "Lowering of the shift",
+                    "suffix": " K",
+                    "minimum": 1,
+                    "maximum": 2
+                },
+                {
+                    "type": "NumberSpinner",
+                    "name": "RoomShiftSolarLeadHours",
+                    "caption": "Look-ahead for the slow heating",
+                    "suffix": " h",
+                    "minimum": 1,
+                    "maximum": 6
+                },
+                {
+                    "type": "SelectInstance",
+                    "name": "RoomShiftSolarInstance",
+                    "caption": "Shading instance (empty: find automatically)",
+                    "validModules": ["{DAD1C0DF-D8EA-4839-8CAC-84C36A944F2D}"]
+                },
+                {
+                    "type": "Label",
+                    "name": "RoomShiftSolarStatus",
+                    "caption": "ROOMSHIFTSOLARSTATUS"
                 }
             ]
         },

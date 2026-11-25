@@ -120,6 +120,9 @@ class HeishaMon extends IPSModule
         ],
         '1.44.0' => [
             'New: support for the HeishaMon firmware 4.3/4.4. New optional data points (data point list): actual quiet and powerful mode, activity of zone 1 and 2, heating water target including buffer delta, rated capacity and type of the heat pump, defrost signal and the maximum times for room heating and DHW heat-up. 45 further read-back values of the installer menus can be switched on in the list, they are off by default. New commands for newly created variables: quiet mode schedule on/off, sterilization temperature and holding time, switch-over temperatures heating/cooling, maximum room heating and DHW heat-up times. The relays and, optionally, the five extra GPIOs of the large board are now read back from the board; new button "Reset the fault code of the heat pump". The time schedule says when board rules overwrite a shift value. The module is shown as "NRG-Stack HeishaMon" in the object tree. If the topic group "Installer settings" of a firmware 4.4 board is switched off, the form says so and links to the firmware page.'
+        ],
+        '1.45.0' => [
+            'New: the solar heat of the shading (NRG-Stack Verschattung 0.11, contract shading 1.1) can lower the shift of the heating channels by 1 to 2 K while the sun heats the house strongly (optional, off by default). With a fast heating the current value counts, with a slow heating the expectation for the next hours. The module only reads; if the shading is missing or outdated, the rooms are cool or the heating is not running, the plan applies unchanged.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -381,6 +384,10 @@ class HeishaMon extends IPSModule
         $roomShiftLine = $this->roomShiftStatusLine();
         $this->patchFormElement($form['elements'], 'RoomShiftStatus', function (&$element) use ($roomShiftLine) {
             $element['caption'] = $roomShiftLine;
+        });
+        $roomShiftSolarLine = $this->roomShiftSolarStatusLine();
+        $this->patchFormElement($form['elements'], 'RoomShiftSolarStatus', function (&$element) use ($roomShiftSolarLine) {
+            $element['caption'] = $roomShiftSolarLine;
         });
         $emsRunLine = $this->emsRunStatusLine();
         $this->patchFormElement($form['elements'], 'EmsRunStatus', function (&$element) use ($emsRunLine) {
@@ -3850,6 +3857,17 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeString('RoomShiftRing', '[]');
         $this->RegisterAttributeInteger('RoomShiftSampleAt', 0);
         $this->RegisterAttributeString('RoomShiftReason', '');
+        //Sonnenwaerme der Verschattung als zusaetzliche Eingangsgroesse (seit 1.45.0): senkt die Verschiebung der Heiz-Kanaele zeitweise ab
+        $this->RegisterPropertyBoolean('RoomShiftSolarEnabled', false);
+        $this->RegisterPropertyInteger('RoomShiftSolarInertia', 0);
+        $this->RegisterPropertyInteger('RoomShiftSolarThresholdW', 1500);
+        $this->RegisterPropertyInteger('RoomShiftSolarOffsetK', 1);
+        $this->RegisterPropertyInteger('RoomShiftSolarLeadHours', 3);
+        $this->RegisterPropertyInteger('RoomShiftSolarInstance', 0);
+        $this->RegisterAttributeInteger('RoomShiftSolarOffset', 0);
+        $this->RegisterAttributeInteger('RoomShiftSolarChangedAt', 0);
+        $this->RegisterAttributeString('RoomShiftSolarReason', '');
+        $this->RegisterAttributeFloat('RoomShiftSolarPowerW', 0.0);
     }
 
     private function maintainSchedule()
@@ -3874,6 +3892,11 @@ class HeishaMon extends IPSModule
             if (@$this->GetIDForIdent('RoomShift_Offset') !== false) {
                 $this->MaintainVariable('RoomShift_Offset', $this->Translate('Room-guided shift offset'), VARIABLETYPE_INTEGER, [], 277, false);
             }
+        }
+        if (!$this->ReadPropertyBoolean('RoomShiftSolarEnabled')) {
+            //Sonnenwaerme-Nutzung aus: die Absenkung entfaellt, der Plan gilt wieder unveraendert
+            $this->WriteAttributeInteger('RoomShiftSolarOffset', 0);
+            $this->WriteAttributeString('RoomShiftSolarReason', '');
         }
         $this->SetTimerInterval('SchedTick', self::SCHED_TICK_MS);
     }
@@ -3918,10 +3941,18 @@ class HeishaMon extends IPSModule
     /** Versatz auf den geplanten Wert eines Kanals: nur die Heiz-Kanaele, nur mit eingeschalteter Raumfuehrung. */
     private function roomShiftOffsetFor(string $key): int
     {
-        if (!$this->ReadPropertyBoolean('RoomShiftEnabled') || !in_array($key, ['z1Heat', 'z2Heat'], true)) {
+        if (!in_array($key, ['z1Heat', 'z2Heat'], true)) {
             return 0;
         }
-        return (int) $this->ReadAttributeInteger('RoomShiftOffset');
+        $offset = 0;
+        if ($this->ReadPropertyBoolean('RoomShiftEnabled')) {
+            $offset += (int) $this->ReadAttributeInteger('RoomShiftOffset');
+        }
+        if ($this->ReadPropertyBoolean('RoomShiftSolarEnabled')) {
+            //Absenkung durch die Sonnenwaerme (0 oder negativ), unabhaengig vom langsamen Raumregler
+            $offset += (int) $this->ReadAttributeInteger('RoomShiftSolarOffset');
+        }
+        return $offset;
     }
 
     /** Wirksamer Sollwert eines Kanals: geplanter Wert plus Versatz der Raumfuehrung, innerhalb der Grenzen des Kanals. */
@@ -4049,7 +4080,8 @@ class HeishaMon extends IPSModule
             'bandK'     => (float) $this->ReadPropertyFloat('RoomShiftBandK'),
             'meanC'     => $mean === null ? null : round($mean, 1),
             'changedAt' => (int) $this->ReadAttributeInteger('RoomShiftChangedAt'),
-            'reason'    => $enabled && $reason !== '' ? $this->Translate($reason) : ''
+            'reason'    => $enabled && $reason !== '' ? $this->Translate($reason) : '',
+            'solar'     => $this->roomShiftSolarInfo()
         ];
     }
 
@@ -4064,6 +4096,168 @@ class HeishaMon extends IPSModule
         if ($info['meanC'] !== null) {
             $line .= ' ' . sprintf($this->Translate('24 h room mean %s °C.'), $this->heatAutoNumber($info['meanC']));
         }
+        if ($info['reason'] !== '') {
+            $line .= ' ' . $info['reason'] . '.';
+        }
+        return $line;
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    // Sonnenwaerme der Verschattung als Eingangsgroesse der Raumfuehrung (seit 1.45.0)
+    // ------------------------------------------------------------------------------------------------
+    //Liest den Vertrag "shading" 1.1 (VSCH_GetState, rein lesend, optional) und senkt die Verschiebung der Heiz-Kanaele um 1-2 K ab,
+    //solange die Sonne kraeftig ins Haus heizt. Auch dieser Versatz laeuft ueber den Zeitplan (einziger Schreiber der Verschiebung)
+    //mit Kontrolle und Flatter-Schutz. Bei jeder Unklarheit (kein Vertrag, veraltet, kein Heizbetrieb) gilt der Plan unveraendert.
+    //Traege Heizung (Fussboden): Erwartung der naechsten Stunden (nur mit Wolkenprognose); schnelle Heizung (Heizkoerper): Momentwert.
+
+    private const SHADING_MODULE_GUID = '{DAD1C0DF-D8EA-4839-8CAC-84C36A944F2D}';
+    private const SOLAR_MAX_AGE_SECONDS = 1800;
+    private const SOLAR_MIN_HOLD_SECONDS = 1800;
+    private const SOLAR_OFF_FACTOR = 0.6;
+
+    /** Liest den Zustand der Verschattung; null mit Grund, wenn nichts Brauchbares vorliegt. */
+    private function roomShiftSolarRead(int $now): array
+    {
+        if (!function_exists('VSCH_GetState') || !function_exists('IPS_GetInstanceListByModuleID')) {
+            return ['ok' => false, 'reason' => 'The shading module is not installed'];
+        }
+        try {
+            $instanceID = (int) $this->ReadPropertyInteger('RoomShiftSolarInstance');
+            if ($instanceID <= 0 || !@IPS_InstanceExists($instanceID)) {
+                $list = @IPS_GetInstanceListByModuleID(self::SHADING_MODULE_GUID);
+                $instanceID = is_array($list) && $list !== [] ? (int) $list[0] : 0;
+            }
+            if ($instanceID <= 0) {
+                return ['ok' => false, 'reason' => 'No shading instance found'];
+            }
+            $raw = @VSCH_GetState($instanceID);
+            $data = is_string($raw) ? json_decode($raw, true) : null;
+        } catch (\Throwable $e) {
+            $this->SendDebug('Sonnenwaerme', $e->getMessage(), 0);
+            return ['ok' => false, 'reason' => 'The shading does not answer'];
+        }
+        if (!is_array($data)) {
+            return ['ok' => false, 'reason' => 'The shading does not answer'];
+        }
+        if (($data['contractType'] ?? '') !== 'shading' || version_compare((string) ($data['contractVersion'] ?? '0'), '1.1', '<')) {
+            return ['ok' => false, 'reason' => 'The shading is too old (contract shading 1.1 needed)'];
+        }
+        $ts = (int) ($data['ts'] ?? 0);
+        if ($ts <= 0 || $now - $ts > self::SOLAR_MAX_AGE_SECONDS || $ts - $now > 300) {
+            return ['ok' => false, 'reason' => 'The values of the shading are outdated'];
+        }
+        if (($data['mode'] ?? '') !== 'heat') {
+            return ['ok' => false, 'reason' => 'The shading is not in heating mode'];
+        }
+        $inertia = (int) $this->ReadPropertyInteger('RoomShiftSolarInertia');
+        if ($inertia !== 1 && $inertia !== 2) {
+            //automatisch nach der Einstellung "Heizung in den Raeumen" der Verschattung
+            $inertia = in_array((string) ($data['heating'] ?? 'unknown'), ['floor', 'mixed'], true) ? 2 : 1;
+        }
+        if ($inertia === 1) {
+            //null (kein Einstrahlungssensor) gilt wie "keine Sonne"
+            $power = is_numeric($data['gainNowW'] ?? null) ? max(0.0, (float) $data['gainNowW']) : 0.0;
+            return ['ok' => true, 'power' => $power, 'inertia' => 1, 'basis' => (string) ($data['basis'] ?? '')];
+        }
+        if (($data['basis'] ?? '') !== 'forecast') {
+            return ['ok' => false, 'reason' => 'The expectation of the shading has no cloud forecast (clear sky only)'];
+        }
+        $hours = max(1, min(6, (int) $this->ReadPropertyInteger('RoomShiftSolarLeadHours')));
+        $series = $data['gainNextHoursWh'] ?? null;
+        if (!is_array($series) || count($series) < $hours) {
+            return ['ok' => false, 'reason' => 'The expectation of the shading is incomplete'];
+        }
+        $sum = 0.0;
+        for ($i = 0; $i < $hours; $i++) {
+            $sum += is_numeric($series[$i] ?? null) ? max(0.0, (float) $series[$i]) : 0.0;
+        }
+        //Wh je Stunde = mittlere Leistung in W ueber die naechsten Stunden
+        return ['ok' => true, 'power' => $sum / $hours, 'inertia' => 2, 'basis' => 'forecast'];
+    }
+
+    private function roomShiftSolarSet(int $offset, string $reason, ?float $power, int $now)
+    {
+        $this->WriteAttributeString('RoomShiftSolarReason', $reason);
+        if ($power !== null) {
+            $this->WriteAttributeFloat('RoomShiftSolarPowerW', $power);
+        }
+        $old = (int) $this->ReadAttributeInteger('RoomShiftSolarOffset');
+        if ($offset === $old) {
+            return;
+        }
+        $this->WriteAttributeInteger('RoomShiftSolarOffset', $offset);
+        $this->WriteAttributeInteger('RoomShiftSolarChangedAt', $now);
+        $this->LogMessage(sprintf('Solar heat: offset %+d -> %+d K (%s)', $old, $offset, $reason), KL_MESSAGE);
+    }
+
+    private function roomShiftSolarTick(int $now)
+    {
+        if (!$this->ReadPropertyBoolean('RoomShiftSolarEnabled') || !$this->scheduleIsActive()) {
+            return;
+        }
+        $plan = $this->schedulePlan();
+        if (!$plan['channels']['z1Heat']['enabled'] && !$plan['channels']['z2Heat']['enabled']) {
+            $this->roomShiftSolarSet(0, 'No heating channel of the time schedule is enabled', null, $now);
+            return;
+        }
+        if (!$this->roomShiftHeating()) {
+            $this->roomShiftSolarSet(0, 'The heating is not running', null, $now);
+            return;
+        }
+        $read = $this->roomShiftSolarRead($now);
+        if (!$read['ok']) {
+            //bei jeder Unklarheit: Plan unveraendert, ohne Wartezeit
+            $this->roomShiftSolarSet(0, (string) $read['reason'], 0.0, $now);
+            return;
+        }
+        $power = (float) $read['power'];
+        $threshold = max(100, (int) $this->ReadPropertyInteger('RoomShiftSolarThresholdW'));
+        $active = (int) $this->ReadAttributeInteger('RoomShiftSolarOffset') !== 0;
+        $want = $active ? $power > $threshold * self::SOLAR_OFF_FACTOR : $power >= $threshold;
+        $reason = $want ? 'The sun heats the house, the shift is lowered' : 'The solar heat is below the threshold';
+
+        //Schutz: nie absenken, wenn die Raeume schon unter dem Zielband liegen
+        if ($want) {
+            $rooms = $this->heatAutoRooms();
+            $floor = (float) $this->ReadPropertyFloat('RoomShiftTargetC') - max(0.1, (float) $this->ReadPropertyFloat('RoomShiftBandK'));
+            if ($rooms['mean'] !== null && $rooms['count'] > 0 && (float) $rooms['mean'] < $floor) {
+                $want = false;
+                $reason = 'The rooms are cooler than the target band';
+            }
+        }
+        $offset = $want ? -max(1, min(2, (int) $this->ReadPropertyInteger('RoomShiftSolarOffsetK'))) : 0;
+        if ($want !== $active && $now - (int) $this->ReadAttributeInteger('RoomShiftSolarChangedAt') < self::SOLAR_MIN_HOLD_SECONDS
+            && $reason !== 'The rooms are cooler than the target band') {
+            //Verdichter-Schutz: hoechstens eine Aenderung je halbe Stunde
+            $this->WriteAttributeString('RoomShiftSolarReason', 'Waiting after the last change');
+            $this->WriteAttributeFloat('RoomShiftSolarPowerW', $power);
+            return;
+        }
+        $this->roomShiftSolarSet($offset, $reason, $power, $now);
+    }
+
+    /** Zustand der Sonnenwaerme-Nutzung fuer GetSchedule() und das Formular. */
+    private function roomShiftSolarInfo(): array
+    {
+        $enabled = $this->ReadPropertyBoolean('RoomShiftSolarEnabled');
+        $reason = (string) $this->ReadAttributeString('RoomShiftSolarReason');
+        return [
+            'enabled'    => $enabled,
+            'offset'     => $enabled ? (int) $this->ReadAttributeInteger('RoomShiftSolarOffset') : 0,
+            'powerW'     => $enabled ? round((float) $this->ReadAttributeFloat('RoomShiftSolarPowerW')) : null,
+            'thresholdW' => (int) $this->ReadPropertyInteger('RoomShiftSolarThresholdW'),
+            'changedAt'  => (int) $this->ReadAttributeInteger('RoomShiftSolarChangedAt'),
+            'reason'     => $enabled && $reason !== '' ? $this->Translate($reason) : ''
+        ];
+    }
+
+    private function roomShiftSolarStatusLine(): string
+    {
+        if (!$this->ReadPropertyBoolean('RoomShiftSolarEnabled')) {
+            return $this->Translate('ℹ️ The solar heat of the shading is not used. Enable it above.');
+        }
+        $info = $this->roomShiftSolarInfo();
+        $line = sprintf($this->Translate('☀️ Solar heat: offset %+d K, %d W (threshold %d W).'), $info['offset'], (int) $info['powerW'], $info['thresholdW']);
         if ($info['reason'] !== '') {
             $line .= ' ' . $info['reason'] . '.';
         }
@@ -4096,6 +4290,7 @@ class HeishaMon extends IPSModule
     {
         $now = time();
         $this->roomShiftTick($now);
+        $this->roomShiftSolarTick($now);
         $this->scheduleProcess($now);
     }
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.45.0 — 2026-11-25
+
+Sonnenwärme der Verschattung als Eingangsgröße der Raumführung (Vertrag `shading` 1.1, Verschattung 0.11, Dietmar am 25.11.2026 freigegeben).
+
+- Neu: Optionale Absenkung der Verschiebung der Heiz-Kanäle um 1 bis 2 K, solange die Sonne das Haus kräftig heizt (Eigenschaft `RoomShiftSolarEnabled`, ab Werk aus). Das Modul liest `VSCH_GetState` einmal pro Minute und schreibt nie in die Verschattung; die Absenkung setzt der Zeitplan um (Kontrolle, Flatter-Schutz).
+- Neu: Schnelle Heizung (Heizkörper) nutzt den Momentwert `gainNowW` mit Schwelle (Standard 1500 W) und Hysterese (zurück unter 60 %); träge Heizung (Fußboden) nutzt die Erwartung `gainNextHoursWh` (Mittel der nächsten 1–6 h, Standard 3) und nur bei `basis: "forecast"`. „Automatisch“ folgt der Einstellung `heating` der Verschattung.
+- Neu: Schutz gegen Takten und Auskühlen: höchstens eine Änderung je halbe Stunde, nie absenken bei Räumen unter dem Zielband der Raumführung; bei fehlender, veralteter (über 30 min) oder nicht auf Heizen stehender Verschattung und bei stehender Heizung gilt der Plan sofort unverändert.
+- Neu: `HEISHA_GetSchedule` meldet `roomShift.solar` (additiv); Statuszeile im Formular.
+
 ## 1.44.0 — 2026-11-24
 
 Unterstützung der HeishaMon-Firmware 4.3/4.4 (Dietmars Platine, v4.4.1, am 24.11.2026 geprüft).
