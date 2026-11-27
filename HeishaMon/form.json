@@ -964,6 +964,39 @@
                     "type": "Label",
                     "name": "RoomShiftSolarStatus",
                     "caption": "ROOMSHIFTSOLARSTATUS"
+                },
+                {
+                    "type": "Label",
+                    "caption": "Heating curve advice (optional): the module compares the 24 hour mean of the room temperature with the target room temperature above and suggests how the heating curve of zone 1 could be changed. It only shows the suggestion and never writes into the heat pump. Off by default."
+                },
+                {
+                    "type": "RowLayout",
+                    "items": [
+                        {
+                            "type": "CheckBox",
+                            "name": "CurveAdvisorEnabled",
+                            "caption": "🆕 Calculate a heating curve advice (display only)"
+                        },
+                        {
+                            "type": "PopupButton",
+                            "caption": "How is the heating curve advice calculated?",
+                            "width": "400px",
+                            "popup": {
+                                "caption": "How is the heating curve advice calculated?",
+                                "items": [
+                                    {
+                                        "type": "Label",
+                                        "caption": "Every 10 minutes the module notes the room temperature (the same rooms as the heating automation, median) and the outside temperature while the heating is running; times with a solar lowering do not count. After at least 20 hours of data it compares the 24 hour mean with the target room temperature and tolerance of the room-guided shift above. If the rooms are outside the tolerance, it assumes that 1 K of room temperature needs about 2.5 K of flow temperature (a rough estimate, at most 4 K per advice) and distributes the change over the two points of the heating curve according to the mean outside temperature: on cold days mainly the cold point, on mild days mainly the mild point. Alternatively it names the equivalent change of the shift \"Normal\" in the schedule. The advice is shown below and in the variable \"Heating curve advice\"; the module never writes the curve itself, because the number of writes the memory of the heat pump endures is unknown. Zone 2 and direct mode are not covered."
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "Label",
+                    "name": "CurveAdvisorStatus",
+                    "caption": "CURVEADVISORSTATUS"
                 }
             ]
         },

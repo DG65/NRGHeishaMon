@@ -179,6 +179,15 @@ An additional input of the room guidance (switched with the variable "Use the so
 - `HEISHA_GetSolarAssist($id)` (since 1.46.0, read only) reports `available`, `enabled`, `active`, `offsetK`, `inertia`, `thresholdW`, `switchIdent`/`switchID` and `reason`; it is switched with `RequestAction` on the variable `RoomShift_SolarAssist`, never through a property.
 - `HEISHA_GetSchedule` reports the state under `roomShift.solar` (`enabled`, `offset`, `powerW`, `thresholdW`, `changedAt`, `reason`).
 
+### Heating curve advice (optional, since version 1.47.0)
+
+The module compares the **24 hour mean of the room temperature** (the same rooms as the heating automation, median) with the **target room temperature** of the room guidance (same tolerance) and suggests how the heating curve of zone 1 could be changed. It **only shows the advice and never writes** into the heat pump, because it is unknown how many writes its memory endures (HeishaMon README "EEPROM warning": a few per hour and setting are probably fine).
+
+- Every 10 minutes the module notes room mean and outside temperature while the heating is running; times with a solar lowering do not count. It calculates after at least 20 hours of data.
+- If the rooms are outside the tolerance, the module assumes that 1 K of room temperature needs about **2.5 K of flow temperature** (rough estimate, at most 4 K per advice, flow 20-55 °C) and distributes the change over the cold point and the mild point of the curve according to the mean outside temperature (cold day: mainly the cold point). Alternatively it names the equivalent change of the shift "Normal" in the schedule.
+- The advice is shown in the form (schedule panel, below the room guidance) and in the variable "Heating curve advice"; `HEISHA_GetCurveAdvice($id)` returns it read only (`ready`, `roomMeanC`, `targetC`, `errorK`, `outsideMeanC`, `deltaK` with + = raise, `curve` now, `suggested`, `shiftK`, `reason`).
+- Not covered: zone 2 and direct mode (no heating curve).
+
 ## Energy saving check
 
 The **💡 Energy saving check** area in the instance configuration rates the settings received from the unit against reference values from the documented [HeishaMon example rulesets](https://github.com/heishamon/HeishaMon/tree/main/Examples/Rules) and the Panasonic service manual: cycling behavior (average runtime per compressor start), DHW target temperature and reheat delta, backup heater enable temperature and delay, heating-off threshold, heating curve target and pump duty. The check is **display only**; nothing is changed. The rated values are service settings of the heat pump: change them deliberately, and when in doubt with your installer.

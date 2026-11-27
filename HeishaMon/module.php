@@ -126,6 +126,9 @@ class HeishaMon extends IPSModule
         ],
         '1.46.0' => [
             'New: the solar heat of the shading is now switched with the variable "Use the solar heat of the shading" (shown next to the time schedule) instead of the check box in the form, so the shading wizard can offer to switch it on after your click; a check box set in version 1.45.0 is taken over once. New interface HEISHA_GetSolarAssist() reports whether the function is available and switched on, the reaction of the heating and the current lowering. The solar heat only needs the time schedule to be switched on.'
+        ],
+        '1.47.0' => [
+            'New: optional heating curve advice (off by default): the module compares the 24 hour mean of the room temperature with the target room temperature and suggests how the heating curve of zone 1 could be changed (or the shift "Normal" in the schedule), shown in the form and in the variable "Heating curve advice". It only calculates and never writes into the heat pump.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -391,6 +394,10 @@ class HeishaMon extends IPSModule
         $roomShiftSolarLine = $this->roomShiftSolarStatusLine();
         $this->patchFormElement($form['elements'], 'RoomShiftSolarStatus', function (&$element) use ($roomShiftSolarLine) {
             $element['caption'] = $roomShiftSolarLine;
+        });
+        $curveAdviceLine = $this->curveAdvisorStatusLine();
+        $this->patchFormElement($form['elements'], 'CurveAdvisorStatus', function (&$element) use ($curveAdviceLine) {
+            $element['caption'] = $curveAdviceLine;
         });
         $emsRunLine = $this->emsRunStatusLine();
         $this->patchFormElement($form['elements'], 'EmsRunStatus', function (&$element) use ($emsRunLine) {
@@ -1130,6 +1137,7 @@ class HeishaMon extends IPSModule
 
         $this->maintainHeatingAutomation();
         $this->maintainSchedule();
+        $this->maintainCurveAdvisor();
         $this->maintainEmsRun();
 
         $this->SendDebug('VariableList', (string) $this->ReadPropertyString('VariableList'), 0);
@@ -3885,6 +3893,12 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeInteger('RoomShiftSolarChangedAt', 0);
         $this->RegisterAttributeString('RoomShiftSolarReason', '');
         $this->RegisterAttributeFloat('RoomShiftSolarPowerW', 0.0);
+        //Heizkurven-Vorschlag (seit 1.47.0): rechnet nur, schreibt nie in die Anlage
+        $this->RegisterPropertyBoolean('CurveAdvisorEnabled', false);
+        $this->RegisterAttributeString('CurveAdvisorRing', '[]');
+        $this->RegisterAttributeInteger('CurveAdvisorSampleAt', 0);
+        $this->RegisterAttributeString('CurveAdvisorResult', '');
+        $this->RegisterTimer('CurveAdvisorTick', 0, 'HEISHA_CurveAdvisorTick($_IPS[\'TARGET\']);');
     }
 
     private function maintainSchedule()
@@ -4128,6 +4142,177 @@ class HeishaMon extends IPSModule
             $line .= ' ' . $info['reason'] . '.';
         }
         return $line;
+    }
+
+    // ------------------------------------------------------------------------------------------------
+    // Heizkurven-Vorschlag (seit 1.47.0)
+    // ------------------------------------------------------------------------------------------------
+    //Stufe 1 des Heizkurven-Reglers: Das Modul vergleicht das 24-h-Mittel der Raumtemperatur (dieselben Raeume wie die Heizungs-Automatik,
+    //Median) mit der Ziel-Raumtemperatur der Raumfuehrung und schlaegt vor, wie die Heizkurve von Zone 1 geaendert werden koennte -
+    //nur als Anzeige. Es schreibt NIE in die Anlage (die Schreibgrenze des Speichers der Waermepumpe ist unbekannt, HeishaMon-README
+    //"EEPROM warning"). Die Korrektur wird nach der mittleren Aussentemperatur des Tages auf die beiden Kurvenpunkte verteilt.
+
+    private const CURVEADVICE_SAMPLE_SECONDS = 600;
+    private const CURVEADVICE_WINDOW_SECONDS = 86400;
+    private const CURVEADVICE_MIN_SPAN_SECONDS = 72000;
+    private const CURVEADVICE_MIN_SAMPLES = 100;
+    /** Grobe Schaetzung: so viele Kelvin Vorlauf braucht ein Kelvin Raumtemperatur (aus den Archivdaten, nicht belastbar) */
+    private const CURVEADVICE_FLOW_PER_ROOM_K = 2.5;
+    private const CURVEADVICE_MAX_STEP_K = 4;
+    private const CURVEADVICE_FLOW_MIN_C = 20;
+    private const CURVEADVICE_FLOW_MAX_C = 55;
+
+    private function maintainCurveAdvisor()
+    {
+        if ($this->ReadPropertyBoolean('CurveAdvisorEnabled')) {
+            $this->maintainDefaultPresentation('CurveAdvice', $this->Translate('Heating curve advice'), VARIABLETYPE_STRING, ['PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION], 279);
+            $this->SetTimerInterval('CurveAdvisorTick', self::CURVEADVICE_SAMPLE_SECONDS * 1000);
+        } else {
+            $this->SetTimerInterval('CurveAdvisorTick', 0);
+            $this->WriteAttributeString('CurveAdvisorRing', '[]');
+            $this->WriteAttributeString('CurveAdvisorResult', '');
+            if (@$this->GetIDForIdent('CurveAdvice') !== false) {
+                $this->MaintainVariable('CurveAdvice', $this->Translate('Heating curve advice'), VARIABLETYPE_STRING, [], 279, false);
+            }
+        }
+    }
+
+    /** Alle 10 Minuten ein Messwert (Raum-Mittel, Aussentemperatur) waehrend des Heizbetriebs, danach neu rechnen. */
+    public function CurveAdvisorTick()
+    {
+        if (!$this->ReadPropertyBoolean('CurveAdvisorEnabled')) {
+            return;
+        }
+        $now = time();
+        if ($now - (int) $this->ReadAttributeInteger('CurveAdvisorSampleAt') < self::CURVEADVICE_SAMPLE_SECONDS - 5) {
+            return;
+        }
+        $this->WriteAttributeInteger('CurveAdvisorSampleAt', $now);
+        $result = $this->curveAdvisorSample($now);
+        $this->WriteAttributeString('CurveAdvisorResult', json_encode($result));
+        if (@$this->GetIDForIdent('CurveAdvice') !== false) {
+            $text = $this->curveAdvisorText($result);
+            if (GetValue($this->GetIDForIdent('CurveAdvice')) !== $text) {
+                $this->SetValue('CurveAdvice', $text);
+            }
+        }
+    }
+
+    private function curveAdvisorSample(int $now): array
+    {
+        $base = ['ts' => $now, 'ready' => false, 'reason' => ''];
+        $ring = json_decode((string) $this->ReadAttributeString('CurveAdvisorRing'), true);
+        $ring = is_array($ring) ? $ring : [];
+        $outsideID = $this->idForIdent('Outside_Temp');
+        $curve = $this->readCurve('Z1', 'Heat');
+        $heatingMode = $this->idForIdent('Heating_Mode');
+        if ($curve === null || ($heatingMode !== 0 && (int) GetValue($heatingMode) !== 0)) {
+            return ['reason' => 'The heating curve of zone 1 is not available (direct mode or not reported)'] + $base;
+        }
+        //Messreihe nur fuehren, wenn geheizt wird; eine Luecke ueber 3 Stunden verwirft die alte Reihe
+        $rooms = $this->heatAutoRooms();
+        //Zeiten mit Sonnenabsenkung zaehlen nicht (die Raeume sind dann absichtlich anders gefuehrt)
+        $sampleOk = $this->roomShiftHeating() && $rooms['mean'] !== null && $rooms['count'] > 0 && $outsideID !== 0
+            && (int) $this->ReadAttributeInteger('RoomShiftSolarOffset') === 0;
+        if ($ring !== [] && $now - (int) $ring[count($ring) - 1][0] > 10800 + self::CURVEADVICE_SAMPLE_SECONDS) {
+            $ring = [];
+        }
+        if ($sampleOk) {
+            $ring[] = [$now, round((float) $rooms['mean'], 2), round((float) GetValue($outsideID), 1)];
+        }
+        $ring = array_values(array_filter($ring, fn ($row) => $row[0] > $now - self::CURVEADVICE_WINDOW_SECONDS));
+        $this->WriteAttributeString('CurveAdvisorRing', json_encode($ring));
+        if (!$this->roomShiftHeating()) {
+            $base['reason'] = 'The heating is not running';
+        } elseif ($rooms['mean'] === null || $rooms['count'] < 1) {
+            $base['reason'] = 'No rooms with a valid temperature';
+        }
+        $span = $ring === [] ? 0 : $ring[count($ring) - 1][0] - $ring[0][0];
+        if (count($ring) < self::CURVEADVICE_MIN_SAMPLES || $span < self::CURVEADVICE_MIN_SPAN_SECONDS) {
+            return ['reason' => $base['reason'] !== '' ? $base['reason'] : 'Collecting room and outside temperatures', 'samples' => count($ring)] + $base;
+        }
+        return $this->curveAdvisorCompute($ring, $curve, $now);
+    }
+
+    /** Rechnet aus Messreihe und Kurve den Vorschlag (rein rechnerisch, ohne Zugriff auf die Anlage). */
+    private function curveAdvisorCompute(array $ring, array $curve, int $now): array
+    {
+        $roomMean = array_sum(array_column($ring, 1)) / count($ring);
+        $outsideMean = array_sum(array_column($ring, 2)) / count($ring);
+        $target = (float) $this->ReadPropertyFloat('RoomShiftTargetC');
+        $band = max(0.1, (float) $this->ReadPropertyFloat('RoomShiftBandK'));
+        $error = $target - $roomMean;
+        $result = [
+            'ts'          => $now, 'ready' => true, 'samples' => count($ring), 'roomMeanC' => round($roomMean, 1), 'targetC' => $target, 'bandK' => $band,
+            'errorK'      => round($error, 1), 'outsideMeanC' => round($outsideMean, 1), 'deltaK' => 0, 'curve' => $curve, 'suggested' => $curve, 'shiftK' => 0,
+            'reason'      => ''
+        ];
+        if (abs($error) <= $band) {
+            $result['reason'] = 'The curve fits the rooms';
+            return $result;
+        }
+        $delta = (int) round($error * self::CURVEADVICE_FLOW_PER_ROOM_K);
+        $delta = max(-self::CURVEADVICE_MAX_STEP_K, min(self::CURVEADVICE_MAX_STEP_K, $delta === 0 ? ($error > 0 ? 1 : -1) : $delta));
+        //Gewicht des kalten Kurvenpunkts nach der mittleren Aussentemperatur (0 = mild, 1 = kalt), Verteilung mit kleinster Aenderung
+        $span = max(1, $curve['outsideHighC'] - $curve['outsideLowC']);
+        $w = max(0.0, min(1.0, ($curve['outsideHighC'] - $outsideMean) / $span));
+        $norm = $w * $w + (1 - $w) * (1 - $w);
+        $dCold = (int) round($delta * $w / $norm);
+        $dMild = (int) round($delta * (1 - $w) / $norm);
+        $cold = max(self::CURVEADVICE_FLOW_MIN_C, min(self::CURVEADVICE_FLOW_MAX_C, $curve['targetHighC'] + $dCold));
+        $mild = max(self::CURVEADVICE_FLOW_MIN_C, min(self::CURVEADVICE_FLOW_MAX_C, $curve['targetLowC'] + $dMild));
+        $mild = min($mild, $cold);
+        $result['suggested'] = ['targetHighC' => $cold, 'targetLowC' => $mild, 'outsideHighC' => $curve['outsideHighC'], 'outsideLowC' => $curve['outsideLowC']];
+        $result['deltaK'] = $delta;
+        $result['shiftK'] = max(-5, min(5, $delta));
+        $result['reason'] = $delta > 0 ? 'Raise the heating curve' : 'Lower the heating curve';
+        return $result;
+    }
+
+    private function curveAdvisorText(array $result): string
+    {
+        if (!($result['ready'] ?? false)) {
+            return $this->Translate((string) ($result['reason'] ?? '')) . (isset($result['samples']) ? ' (' . (int) $result['samples'] . ')' : '');
+        }
+        if ((int) $result['deltaK'] === 0) {
+            return $this->Translate('The curve fits the rooms');
+        }
+        $c = $result['curve'];
+        $n = $result['suggested'];
+        if ((int) $result['deltaK'] > 0) {
+            $format = '💡 Curve advice: the rooms are %1$s K too cold (24 h mean %2$s °C, target %3$s °C, outside %4$s °C). Raise the heating curve: cold point (at %5$d °C outside) %6$d → %7$d °C, mild point (at %8$d °C outside) %9$d → %10$d °C - or raise "Normal" in the schedule by %11$d K. This is only a suggestion, nothing is written.';
+        } else {
+            $format = '💡 Curve advice: the rooms are %1$s K too warm (24 h mean %2$s °C, target %3$s °C, outside %4$s °C). Lower the heating curve: cold point (at %5$d °C outside) %6$d → %7$d °C, mild point (at %8$d °C outside) %9$d → %10$d °C - or lower "Normal" in the schedule by %11$d K. This is only a suggestion, nothing is written.';
+        }
+        return sprintf($this->Translate($format), $this->heatAutoNumber(abs((float) $result['errorK'])), $this->heatAutoNumber($result['roomMeanC']), $this->heatAutoNumber($result['targetC']), $this->heatAutoNumber($result['outsideMeanC']),
+            $c['outsideLowC'], $c['targetHighC'], $n['targetHighC'], $c['outsideHighC'], $c['targetLowC'], $n['targetLowC'], abs((int) $result['shiftK']));
+    }
+
+    private function curveAdvisorStatusLine(): string
+    {
+        if (!$this->ReadPropertyBoolean('CurveAdvisorEnabled')) {
+            return $this->Translate('ℹ️ The heating curve advice is not used. Enable it above.');
+        }
+        $result = json_decode((string) $this->ReadAttributeString('CurveAdvisorResult'), true);
+        if (!is_array($result)) {
+            return $this->Translate('Collecting room and outside temperatures');
+        }
+        return $this->curveAdvisorText($result);
+    }
+
+    /**
+     * Heizkurven-Vorschlag (rein lesend, schreibt nie in die Anlage): enabled, ready, roomMeanC, targetC, errorK, outsideMeanC, deltaK
+     * (+ = Kurve anheben), curve (jetzt), suggested (Vorschlag), shiftK (gleichwertige Aenderung der Verschiebung "Normal"), reason.
+     */
+    public function GetCurveAdvice()
+    {
+        $enabled = $this->ReadPropertyBoolean('CurveAdvisorEnabled');
+        $result = json_decode((string) $this->ReadAttributeString('CurveAdvisorResult'), true);
+        $result = is_array($result) ? $result : ['ready' => false, 'reason' => 'Collecting room and outside temperatures'];
+        $result['contractVersion'] = '1.0';
+        $result['enabled'] = $enabled;
+        $result['reason'] = $this->Translate((string) ($result['reason'] ?? ''));
+        return $result;
     }
 
     // ------------------------------------------------------------------------------------------------

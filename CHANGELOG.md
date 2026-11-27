@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.47.0 — 2026-11-27
+
+Heizkurven-Vorschlag, Stufe 1 des Heizkurven-Reglers (Dietmar am 27.11.2026 freigegeben; Konzept `HeishaMon-Heizkurvenregler-Konzept.md`).
+
+- Neu: Optionaler Heizkurven-Vorschlag (Eigenschaft `CurveAdvisorEnabled`, ab Werk aus, im Panel Zeitplan unter der Raumführung). Das Modul notiert alle 10 Minuten Raum-Mittel (dieselben Räume wie die Heizungs-Automatik, Median) und Außentemperatur, solange geheizt wird (Zeiten mit Sonnenabsenkung zählen nicht), und vergleicht nach mindestens 20 Stunden das 24-Stunden-Mittel mit der Ziel-Raumtemperatur und Toleranz der Raumführung. Abweichung außerhalb der Toleranz ergibt einen Vorschlag: Kalt-Punkt und Mild-Punkt der Heizkurve von Zone 1, verteilt nach der mittleren Außentemperatur (an kalten Tagen vor allem der Kalt-Punkt), oder gleichwertig die Verschiebung „Normal“ im Zeitplan. Annahme 2,5 K Vorlauf je 1 K Raumtemperatur (grobe Schätzung), höchstens 4 K je Vorschlag, Vorlauf 20–55 °C.
+- Neu: Der Vorschlag erscheint im Formular und in der Variable `CurveAdvice` („Heizkurven-Vorschlag“); `HEISHA_GetCurveAdvice()` liefert ihn rein lesend (`ready`, `roomMeanC`, `targetC`, `errorK`, `outsideMeanC`, `deltaK`, `curve`, `suggested`, `shiftK`, `reason`).
+- Wichtig: Das Modul schreibt die Kurve **nie**. Die Schreibgrenze des Speichers der Wärmepumpe ist unbekannt (HeishaMon-README „EEPROM warning“); später folgt gegebenenfalls ein Schreibpfad mit höchstens einer Änderung je Kurvenpunkt und Tag, nur auf ausdrücklichen Wunsch. Zone 2 und Direktbetrieb werden nicht ausgewertet.
+
 ## 1.46.0 — 2026-11-25
 
 Schnittstelle für den Verschattungs-Assistenten: Die Sonnenwärme-Nutzung wird mit einer Schaltvariable geschaltet (Dietmar am 25.11.2026 freigegeben).
