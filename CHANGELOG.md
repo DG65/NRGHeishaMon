@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.47.1 — 2026-11-28
+
+- Fix: Der Heizkurven-Vorschlag beginnt seine 24-Stunden-Messreihe nach jeder Änderung neu, die die Vorlauftemperatur führt: Versatz der Raumführung, Zeitplan des Kanals Zone 1 Heizen oder die vier Punkte der Heizkurve (Fingerabdruck der drei Größen). Vorher zählte der Vorschlag eine schon umgesetzte Änderung doppelt (Befund 28.11.: Die Raumführung hob um 09:57 Uhr um 1 K an, der Vorschlag nannte noch einmal +1 K, weil die Messreihe die 20 Stunden davor enthielt). Folge: Nach einer Änderung dauert es wieder etwa 20 Stunden bis zum nächsten Vorschlag.
+- Fix: Die Variable `CurveAdvice` ist beim Anlegen nicht mehr leer, sondern zeigt gleich den Zustand („Raum- und Außentemperaturen werden gesammelt“).
+
 ## 1.47.0 — 2026-11-27
 
 Heizkurven-Vorschlag, Stufe 1 des Heizkurven-Reglers (Dietmar am 27.11.2026 freigegeben; Konzept `HeishaMon-Heizkurvenregler-Konzept.md`).

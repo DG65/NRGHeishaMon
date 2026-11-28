@@ -1,7 +1,7 @@
 # HeishaMon
 
 ![Symcon](https://img.shields.io/badge/Symcon-PHPModul-blue)
-![Modul Version](https://img.shields.io/badge/Modul_Version-1.47.0-blue)
+![Modul Version](https://img.shields.io/badge/Modul_Version-1.47.1-blue)
 ![Symcon Version](https://img.shields.io/badge/Symcon_Version-9.0%2B-blue)
 ![License](https://img.shields.io/badge/License-PolyForm_Noncommercial_1.0.0-lightgrey)
 [![Check Style](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml/badge.svg)](https://github.com/DG65/NRGHeishaMon/actions/workflows/check-style.yml)
@@ -183,7 +183,7 @@ Zusätzliche Eingangsgröße der Raumführung (geschaltet mit der Variable „So
 
 Das Modul vergleicht das **24-Stunden-Mittel der Raumtemperatur** (dieselben Räume wie die Heizungs-Automatik, Median) mit der **Ziel-Raumtemperatur** der Raumführung (Toleranz wie dort) und schlägt vor, wie sich die Heizkurve von Zone 1 ändern ließe. Es **zeigt nur an und schreibt nie** in die Wärmepumpe, weil nicht bekannt ist, wie viele Schreibvorgänge deren Speicher verträgt (HeishaMon-README „EEPROM warning“: ein paar je Stunde und Einstellung sind vermutlich in Ordnung).
 
-- Alle 10 Minuten notiert das Modul Raum-Mittel und Außentemperatur, solange geheizt wird; Zeiten mit Sonnenabsenkung zählen nicht. Nach mindestens 20 Stunden Daten wird gerechnet.
+- Alle 10 Minuten notiert das Modul Raum-Mittel und Außentemperatur, solange geheizt wird; Zeiten mit Sonnenabsenkung zählen nicht. Nach mindestens 20 Stunden Daten wird gerechnet. Ändert sich, was die Vorlauftemperatur führt (Versatz der Raumführung, Zeitplan von Zone 1 Heizen oder die Heizkurve), beginnt die Messung neu (ab 1.47.1), damit eine schon umgesetzte Änderung nicht doppelt zählt.
 - Liegen die Räume außerhalb der Toleranz, nimmt das Modul an, dass 1 K Raumtemperatur etwa **2,5 K Vorlauftemperatur** braucht (grobe Schätzung, höchstens 4 K je Vorschlag, Vorlauf 20–55 °C), und verteilt die Änderung nach der mittleren Außentemperatur auf Kalt-Punkt und Mild-Punkt der Kurve (kalter Tag: vor allem der Kalt-Punkt). Alternativ nennt es die gleichwertige Änderung der Verschiebung „Normal“ im Zeitplan.
 - Der Vorschlag steht im Formular (Panel Zeitplan, unter der Raumführung) und in der Variable „Heizkurven-Vorschlag“; `HEISHA_GetCurveAdvice($id)` liefert ihn rein lesend (`ready`, `roomMeanC`, `targetC`, `errorK`, `outsideMeanC`, `deltaK` mit + = anheben, `curve` jetzt, `suggested`, `shiftK`, `reason`).
 - Nicht abgedeckt: Zone 2 und Direktbetrieb (ohne Heizkurve).

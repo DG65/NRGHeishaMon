@@ -129,6 +129,9 @@ class HeishaMon extends IPSModule
         ],
         '1.47.0' => [
             'New: optional heating curve advice (off by default): the module compares the 24 hour mean of the room temperature with the target room temperature and suggests how the heating curve of zone 1 could be changed (or the shift "Normal" in the schedule), shown in the form and in the variable "Heating curve advice". It only calculates and never writes into the heat pump.'
+        ],
+        '1.47.1' => [
+            'Fix: the heating curve advice now starts its measurement anew after a change of the room-guided shift, the schedule or the heating curve, so an already applied change is no longer counted twice; the variable "Heating curve advice" is no longer empty before the first measurement.'
         ]
     ];
     //Der eigene Vorstellungs-Thread, live im Forum bestaetigt (14.09.2026) - vorher stand hier
@@ -3898,6 +3901,7 @@ class HeishaMon extends IPSModule
         $this->RegisterAttributeString('CurveAdvisorRing', '[]');
         $this->RegisterAttributeInteger('CurveAdvisorSampleAt', 0);
         $this->RegisterAttributeString('CurveAdvisorResult', '');
+        $this->RegisterAttributeString('CurveAdvisorSignature', '');
         $this->RegisterTimer('CurveAdvisorTick', 0, 'HEISHA_CurveAdvisorTick($_IPS[\'TARGET\']);');
     }
 
@@ -4166,11 +4170,16 @@ class HeishaMon extends IPSModule
     {
         if ($this->ReadPropertyBoolean('CurveAdvisorEnabled')) {
             $this->maintainDefaultPresentation('CurveAdvice', $this->Translate('Heating curve advice'), VARIABLETYPE_STRING, ['PRESENTATION' => VARIABLE_PRESENTATION_VALUE_PRESENTATION], 279);
+            if ((string) GetValue($this->GetIDForIdent('CurveAdvice')) === '') {
+                //bis zum ersten Messtakt nicht leer lassen
+                $this->SetValue('CurveAdvice', $this->curveAdvisorStatusLine());
+            }
             $this->SetTimerInterval('CurveAdvisorTick', self::CURVEADVICE_SAMPLE_SECONDS * 1000);
         } else {
             $this->SetTimerInterval('CurveAdvisorTick', 0);
             $this->WriteAttributeString('CurveAdvisorRing', '[]');
             $this->WriteAttributeString('CurveAdvisorResult', '');
+            $this->WriteAttributeString('CurveAdvisorSignature', '');
             if (@$this->GetIDForIdent('CurveAdvice') !== false) {
                 $this->MaintainVariable('CurveAdvice', $this->Translate('Heating curve advice'), VARIABLETYPE_STRING, [], 279, false);
             }
@@ -4209,6 +4218,13 @@ class HeishaMon extends IPSModule
         if ($curve === null || ($heatingMode !== 0 && (int) GetValue($heatingMode) !== 0)) {
             return ['reason' => 'The heating curve of zone 1 is not available (direct mode or not reported)'] + $base;
         }
+        //Aendert sich die Fuehrung der Raeume (Versatz der Raumfuehrung, Zeitplan, Kurve), sagt die alte Messreihe nichts mehr ueber den neuen
+        //Zustand: sie beginnt neu (sonst zaehlt der Vorschlag eine schon umgesetzte Aenderung doppelt)
+        $signature = $this->curveAdvisorSignature($curve);
+        if ($signature !== (string) $this->ReadAttributeString('CurveAdvisorSignature')) {
+            $ring = [];
+            $this->WriteAttributeString('CurveAdvisorSignature', $signature);
+        }
         //Messreihe nur fuehren, wenn geheizt wird; eine Luecke ueber 3 Stunden verwirft die alte Reihe
         $rooms = $this->heatAutoRooms();
         //Zeiten mit Sonnenabsenkung zaehlen nicht (die Raeume sind dann absichtlich anders gefuehrt)
@@ -4232,6 +4248,18 @@ class HeishaMon extends IPSModule
             return ['reason' => $base['reason'] !== '' ? $base['reason'] : 'Collecting room and outside temperatures', 'samples' => count($ring)] + $base;
         }
         return $this->curveAdvisorCompute($ring, $curve, $now);
+    }
+
+    /** Fingerabdruck dessen, was die Vorlauftemperatur fuehrt: Kurve, Zeitplan des Kanals Zone 1 Heizen, Versatz der Raumfuehrung. */
+    private function curveAdvisorSignature(array $curve): string
+    {
+        $plan = $this->schedulePlan();
+        $parts = [
+            $curve,
+            $this->ReadPropertyBoolean('SchedEnabled') && $this->scheduleIsActive() ? $plan['channels']['z1Heat'] : null,
+            $this->ReadPropertyBoolean('RoomShiftEnabled') ? (int) $this->ReadAttributeInteger('RoomShiftOffset') : 0
+        ];
+        return md5((string) json_encode($parts));
     }
 
     /** Rechnet aus Messreihe und Kurve den Vorschlag (rein rechnerisch, ohne Zugriff auf die Anlage). */
